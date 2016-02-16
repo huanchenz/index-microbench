@@ -17,6 +17,8 @@ class Index
   virtual uint64_t scan(KeyType key, int range) = 0;
 
   virtual int64_t getMemory() const = 0;
+
+  virtual uint64_t numItems() const = 0;
 };
 
 
@@ -69,10 +71,15 @@ class BtreeIndex : public Index<KeyType, KeyComparator>
       }
       sum += iter->second;
     }
+    return sum;
   }
 
   int64_t getMemory() const {
     return memory;
+  }
+
+  uint64_t numItems() const {
+    return 0;
   }
 
   BtreeIndex(uint64_t kt) {
@@ -118,11 +125,25 @@ class ArtIndex : public Index<KeyType, KeyComparator>
   }
 
   uint64_t scan(KeyType key, int range) {
-    return (uint64_t)0;
+    //std::cout << "=========================================================\n";
+    //std::cout << "=========================================================\n";
+    loadKey(key);
+    uint64_t sum = idx->lower_bound(key_bytes, key_length, key_length);
+    for (int i = 0; i < range - 1; i++) {
+      sum += idx->next();
+      //uint64_t value = idx->next();
+      //std::cout << value << "\n";
+      //sum += value;
+    }
+    return sum;
   }
 
   int64_t getMemory() const {
     return idx->getMemory();
+  }
+
+  uint64_t numItems() const {
+    return idx->num_items();;
   }
 
   ArtIndex(uint64_t kt) {
@@ -184,11 +205,25 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
   }
 
   uint64_t scan(KeyType key, int range) {
-    return (uint64_t)0;
+    //std::cout << "=========================================================\n";
+    //std::cout << "=========================================================\n";
+    loadKey(key);
+    uint64_t sum = idx->lower_bound(key_bytes, key_length, key_length);
+    for (int i = 0; i < range - 1; i++) {
+      sum += idx->next();
+      //uint64_t value = idx->next();
+      //std::cout << value << "\n";
+      //sum += value;
+    }
+    return sum;
   }
 
   int64_t getMemory() const {
     return idx->getMemory();
+  }
+
+  uint64_t numItems() const {
+    return idx->num_items();;
   }
 
   ArtIndex_Generic(uint64_t kt) {

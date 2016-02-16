@@ -7,8 +7,8 @@ MEMMGR = -ltcmalloc_minimal
 
 SNAPPY = /usr/lib/libsnappy.so.1.3.0
 
-#all: workload workload_string arttest
-all: arttest
+all: workload workload_string
+#all: arttest
 
 
 workload.o: workload.cpp microbench.h

@@ -154,6 +154,7 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   std::cout << "insert " << tput << "\n";
   std::cout << "memory " << (idx->getMemory() / 1000000) << "\n";
 
+  //std::cout << "num_items = " << (idx->numItems()) << "\n";
 
   //READ/UPDATE/SCAN TEST----------------
   start_time = get_now();
@@ -212,7 +213,10 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
 int main(int argc, char *argv[]) {
 
   if (argc != 4) {
-    std::cout << "Error: argc = " << argc << "\n";
+    std::cout << "Usage:\n";
+    std::cout << "1. workload type: a, c, e\n";
+    std::cout << "2. key distribution: rand, mono\n";
+    std::cout << "3. index type: btree, art\n";
     return 1;
   }
 

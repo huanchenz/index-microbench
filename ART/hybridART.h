@@ -14,6 +14,7 @@
 #include <algorithm>   // std::random_shuffle
 
 #include <iostream>
+#include <vector>
 #include <deque>
 
 class hybridART {
@@ -44,6 +45,12 @@ public:
     Node() : prefixLength(0),count(0),type(NodeType256) {}
     Node(int8_t type) : prefixLength(0),count(0),type(type) {}
   };
+
+  //huanchen
+  typedef struct {
+    Node* node;
+    uint16_t cursor;
+  } NodeCursor;
 
   // Node with up to 4 children
   struct Node4 : Node {
@@ -324,6 +331,264 @@ public:
 
     return NULL;
   }
+
+  //************************************************************************************************
+  //Range Query Support
+  //huanchen
+  //************************************************************************************************
+
+  inline Node* minimum_recordPath(Node* node) {
+    //std::cout << "minimum_recordPath\n";
+    if (!node)
+      return NULL;
+
+    //std::cout << "hz1\n";
+
+    if (isLeaf(node))
+      return node;
+
+    //std::cout << "hz2\n";
+
+    NodeCursor nc;
+    nc.node = node;
+    nc.cursor = 0;
+    node_stack.push_back(nc);
+
+    switch (node->type) {
+    case NodeType4: {
+      //std::cout << "hz3 Node4\n";
+      Node4* n=static_cast<Node4*>(node);
+      return minimum_recordPath(n->child[0]);
+    }
+    case NodeType16: {
+      //std::cout << "hz3 Node16\n";
+      Node16* n=static_cast<Node16*>(node);
+      return minimum_recordPath(n->child[0]);
+    }
+    case NodeType48: {
+      //std::cout << "hz3 Node48\n";
+      Node48* n=static_cast<Node48*>(node);
+      unsigned pos=0;
+      while (n->childIndex[pos]==emptyMarker)
+	pos++;
+      node_stack.back().cursor = pos;
+      return minimum_recordPath(n->child[n->childIndex[pos]]);
+    }
+    case NodeType256: {
+      //std::cout << "hz3 Node256\n";
+      Node256* n=static_cast<Node256*>(node);
+      unsigned pos=0;
+      while (!n->child[pos])
+	pos++;
+      node_stack.back().cursor = pos;
+      return minimum_recordPath(n->child[pos]);
+    }
+    }
+    throw; // Unreachable
+  }
+
+  inline Node* findChild_recordPath(Node* n,uint8_t keyByte) {
+    //std::cout << "findChild_recordPath\n";
+    NodeCursor nc;
+    nc.node = n;
+    switch (n->type) {
+    case NodeType4: {
+      //std::cout << "Node4\n";
+      Node4* node=static_cast<Node4*>(n);
+      for (unsigned i=0;i<node->count;i++) {
+	if (node->key[i]>=keyByte) {
+	  nc.cursor = i;
+	  node_stack.push_back(nc);
+	  if (node->key[i]==keyByte)
+	    return node->child[i];
+	  else
+	    return minimum_recordPath(node->child[i]);
+	}
+      }
+      node_stack.pop_back();
+      return minimum_recordPath(nextSlot());
+    }
+    case NodeType16: {
+      //std::cout << "Node16\n";
+      Node16* node=static_cast<Node16*>(n);
+      for (unsigned i=0;i<node->count;i++) {
+	if (node->key[i]>=keyByte) {
+	  nc.cursor = i;
+	  node_stack.push_back(nc);
+	  if (node->key[i]==keyByte)
+	    return node->child[i];
+	  else
+	    return minimum_recordPath(node->child[i]);
+	}
+      }
+      node_stack.pop_back();
+      return minimum_recordPath(nextSlot());
+    }
+    case NodeType48: {
+      //std::cout << "Node48\n";
+      Node48* node=static_cast<Node48*>(n);
+      if (node->childIndex[keyByte]!=emptyMarker) {
+	nc.cursor = keyByte;
+	node_stack.push_back(nc);
+	return node->child[node->childIndex[keyByte]]; 
+      }
+      else {
+	for (unsigned i=keyByte; i<256; i++) {
+	  if (node->childIndex[i]!=emptyMarker) {
+	    nc.cursor = i;
+	    node_stack.push_back(nc);
+	    return node->child[node->childIndex[i]]; 
+	  }	  
+	}
+	node_stack.pop_back();
+	return minimum_recordPath(nextSlot());
+      }
+    }
+    case NodeType256: {
+      //std::cout << "Node256\n";
+      Node256* node=static_cast<Node256*>(n);
+      if (node->child[keyByte]!=NULL) {
+	nc.cursor = keyByte;
+	node_stack.push_back(nc);
+	return node->child[keyByte];
+      }
+      else {
+	for (unsigned i=keyByte; i<256; i++) {
+	  if (node->child[i]!=NULL) {
+	    nc.cursor = i;
+	    node_stack.push_back(nc);
+	    return node->child[i]; 
+	  }	  
+	}
+	node_stack.pop_back();
+	return minimum_recordPath(nextSlot());
+      }
+    }
+    }
+    throw; // Unreachable
+  }
+
+  inline int CompareToPrefix(Node* node,uint8_t key[],unsigned depth,unsigned maxKeyLength) {
+    //std::cout << "CompareToPrefix\n";
+    unsigned pos;
+    if (node->prefixLength>maxPrefixLength) {
+      for (pos=0;pos<maxPrefixLength;pos++) {
+	if (key[depth+pos]!=node->prefix[pos]) {
+	  if (key[depth+pos]>node->prefix[pos])
+	    return 1;
+	  else
+	    return -1;
+	}
+      }
+      uint8_t minKey[maxKeyLength];
+      loadKey(getLeafValue(minimum(node)),minKey);
+      for (;pos<node->prefixLength;pos++) {
+	if (key[depth+pos]!=minKey[depth+pos]) {
+	  if (key[depth+pos]>minKey[depth+pos])
+	    return 1;
+	  else
+	    return -1;
+	}
+      }
+    } else {
+      for (pos=0;pos<node->prefixLength;pos++) {
+	if (key[depth+pos]!=node->prefix[pos]) {
+	  if (key[depth+pos]>node->prefix[pos])
+	    return 1;
+	  else
+	    return -1;
+	}
+      }
+    }
+    return 0;
+  }
+
+  inline Node* lower_bound(Node* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned maxKeyLength) {
+    //std::cout << "lower_bound\n";
+    node_stack.clear();
+    while (node!=NULL) {
+      if (isLeaf(node)) {
+	return node;
+      }
+
+      int ctp = CompareToPrefix(node,key,depth,maxKeyLength);
+      depth+=node->prefixLength;
+
+      if (ctp > 0) {
+	node_stack.pop_back();
+	return minimum_recordPath(nextSlot());
+      }
+      else if (ctp < 0) {
+	return minimum_recordPath(node);
+      }
+
+      node = findChild_recordPath(node,key[depth]);
+      depth++;
+    }
+
+    return NULL;
+  }
+
+  inline Node* nextSlot() {
+    //std::cout << "nextSlot************************************************\n";
+    while (!node_stack.empty()) {
+      //std::cout << "node_stack.size() = " << node_stack.size() << "\n";
+      Node* n = node_stack.back().node;
+      uint16_t cursor = node_stack.back().cursor;
+      //std::cout << "n = " << n << "\n";
+      //std::cout << "cursor before = " << node_stack.back().cursor << "\n";
+      cursor++;
+      node_stack.back().cursor = cursor;
+      //std::cout << "cursor = " << node_stack.back().cursor << "\n";
+      switch (n->type) {
+      case NodeType4: {
+	//std::cout << "Node4\n";
+	Node4* node=static_cast<Node4*>(n);
+	if (cursor < node->count)
+	  return node->child[cursor];
+	break;
+      }
+      case NodeType16: {
+	//std::cout << "Node16\n";
+	Node16* node=static_cast<Node16*>(n);
+	if (cursor < node->count)
+	  return node->child[cursor];
+	break;
+      }
+      case NodeType48: {
+	//std::cout << "Node48\n";
+	Node48* node=static_cast<Node48*>(n);
+	for (unsigned i=cursor; i<256; i++)
+	  if (node->childIndex[i]!=emptyMarker) {
+	    //std::cout << "i = " << i << "\n";
+	    node_stack.back().cursor = i;
+	    return node->child[node->childIndex[i]];
+	  }
+	break;
+      }
+      case NodeType256: {
+	//std::cout << "Node256\n";
+	Node256* node=static_cast<Node256*>(n);
+	for (unsigned i=cursor; i<256; i++)
+	  if (node->child[i]!=nullNode) {
+	    //std::cout << "i = " << i << "\n";
+	    node_stack.back().cursor = i;
+	    return node->child[i]; 
+	  }
+	break;
+      }
+      }
+      node_stack.pop_back();
+    }
+    return NULL;
+  }
+
+  inline Node* nextLeaf() {
+    return minimum_recordPath(nextSlot());
+  }
+
+  //************************************************************************************************
+
 
   // Forward references
   //void insertNode4(Node4* node,Node** nodeRef,uint8_t keyByte,Node* child);
@@ -654,6 +919,57 @@ public:
     }
   }
 
+  inline uint64_t num_items(Node* r) {
+    uint64_t count = 0;
+    std::deque<Node*> node_queue;
+    node_queue.push_back(r);
+    while (!node_queue.empty()) {
+      Node* n = node_queue.front();
+      if (!isLeaf(n)) {
+	switch (n->type) {
+	case NodeType4: {
+	  Node4* node = static_cast<Node4*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    node_queue.push_back(node->child[i]);
+	    count++;
+	  }
+	  break;
+	}
+	case NodeType16: {
+	  Node16* node = static_cast<Node16*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    node_queue.push_back(node->child[i]);
+	    count++;
+	  }
+	  break;
+	}
+	case NodeType48: {
+	  Node48* node = static_cast<Node48*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->childIndex[i] != emptyMarker) {
+	      node_queue.push_back(node->child[node->childIndex[i]]);
+	      count++;
+	    }
+	  }
+	  break;
+	}
+	case NodeType256: {
+	  Node256* node = static_cast<Node256*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->child[i]) {
+	      node_queue.push_back(node->child[i]);
+	      count++;
+	    }
+	  }
+	  break;
+	}
+	}
+      }
+      node_queue.pop_front();
+    }
+    return count;
+  }
+
 public:
   hybridART()
     : root(NULL), static_root(NULL), memory(0), static_memory(0)
@@ -685,6 +1001,20 @@ public:
     return (uint64_t)0;
   }
 
+  uint64_t lower_bound(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
+    Node* leaf = lower_bound(root, key, keyLength, 0, maxKeyLength);
+    if (isLeaf(leaf))
+      return getLeafValue(leaf);
+    return (uint64_t)0;
+  }
+
+  uint64_t next() {
+    Node* leaf = nextLeaf();
+    if (isLeaf(leaf))
+      return getLeafValue(leaf);
+    return (uint64_t)0;
+  }
+
   void erase(uint8_t key[], unsigned keyLength, unsigned depth, unsigned maxKeyLength) {
     erase(root, &root, key, keyLength, depth, maxKeyLength);
   }
@@ -709,12 +1039,18 @@ public:
     return static_memory;
   }
 
+  uint64_t num_items() {
+    return num_items(root);
+  }
+
 private:
   Node* root;
   Node* static_root;
 
   uint64_t memory;
   uint64_t static_memory;
+
+  std::vector<NodeCursor> node_stack;
 };
 
 static double gettime(void) {
@@ -723,8 +1059,3 @@ static double gettime(void) {
   return ((double)now_tv.tv_sec) + ((double)now_tv.tv_usec)/1000000.0;
 }
 
-static void loadKey(uintptr_t tid,uint8_t key[]) {
-  // Store the key of the tuple into the key vector
-  // Implementation is database specific
-  reinterpret_cast<uint64_t*>(key)[0]=__builtin_bswap64(tid);
-}
