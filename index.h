@@ -18,7 +18,7 @@ class Index
 
   virtual int64_t getMemory() const = 0;
 
-  virtual uint64_t numItems() const = 0;
+  virtual void merge() = 0;
 };
 
 
@@ -78,13 +78,11 @@ class BtreeIndex : public Index<KeyType, KeyComparator>
     return memory;
   }
 
-  uint64_t numItems() const {
-    return 0;
+  void merge() {
+    return;
   }
 
   BtreeIndex(uint64_t kt) {
-    //Index<KeyType, KeyComparator>(0);
-    //Index(0);
     memory = 0;
     alloc = new AllocatorType(&memory);
     idx = new MapType(KeyComparator(), (*alloc));
@@ -125,16 +123,10 @@ class ArtIndex : public Index<KeyType, KeyComparator>
   }
 
   uint64_t scan(KeyType key, int range) {
-    //std::cout << "=========================================================\n";
-    //std::cout << "=========================================================\n";
     loadKey(key);
     uint64_t sum = idx->lower_bound(key_bytes, key_length, key_length);
-    for (int i = 0; i < range - 1; i++) {
+    for (int i = 0; i < range - 1; i++)
       sum += idx->next();
-      //uint64_t value = idx->next();
-      //std::cout << value << "\n";
-      //sum += value;
-    }
     return sum;
   }
 
@@ -142,8 +134,8 @@ class ArtIndex : public Index<KeyType, KeyComparator>
     return idx->getMemory();
   }
 
-  uint64_t numItems() const {
-    return idx->num_items();;
+  void merge() {
+    idx->merge();
   }
 
   ArtIndex(uint64_t kt) {
@@ -205,16 +197,10 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
   }
 
   uint64_t scan(KeyType key, int range) {
-    //std::cout << "=========================================================\n";
-    //std::cout << "=========================================================\n";
     loadKey(key);
     uint64_t sum = idx->lower_bound(key_bytes, key_length, key_length);
-    for (int i = 0; i < range - 1; i++) {
+    for (int i = 0; i < range - 1; i++)
       sum += idx->next();
-      //uint64_t value = idx->next();
-      //std::cout << value << "\n";
-      //sum += value;
-    }
     return sum;
   }
 
@@ -222,8 +208,8 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
     return idx->getMemory();
   }
 
-  uint64_t numItems() const {
-    return idx->num_items();;
+  void merge() {
+    idx->merge();
   }
 
   ArtIndex_Generic(uint64_t kt) {

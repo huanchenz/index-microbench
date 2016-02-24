@@ -85,7 +85,7 @@ inline void load(int wl, int kt, int index_type, std::vector<keytype> &init_keys
   }
   else {
     while (count < INIT_LIMIT) {
-      values.push_back((uint64_t)&init_keys_data[count]);
+      values.push_back((uint64_t)init_keys_data[count].data);
       count++;
     }
   }
@@ -150,6 +150,8 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
 
   //std::cout << "num_items = " << (idx->numItems()) << "\n";
 
+  idx->merge();
+  std::cout << "static memory " << (idx->getMemory() / 1000000) << "\n";
 
   //READ/UPDATE/SCAN TEST----------------
   start_time = get_now();
@@ -178,6 +180,7 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   end_time = get_now();
   tput = txn_num / (end_time - start_time) / 1000000; //Mops/sec
 
+  std::cout << "sum = " << sum << "\n";
 
   if (wl == 0) {  
     std::cout << "read/update " << (tput + (sum - sum)) << "\n";
