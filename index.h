@@ -135,6 +135,7 @@ class ArtIndex : public Index<KeyType, KeyComparator>
   }
 
   void merge() {
+    idx->tree_info();
     idx->merge();
   }
 
@@ -209,6 +210,7 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
   }
 
   void merge() {
+    idx->tree_info();
     idx->merge();
   }
 

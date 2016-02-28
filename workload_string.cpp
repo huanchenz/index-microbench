@@ -148,8 +148,6 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   std::cout << "insert " << tput << "\n";
   std::cout << "memory " << (idx->getMemory() / 1000000) << "\n";
 
-  //std::cout << "num_items = " << (idx->numItems()) << "\n";
-
   idx->merge();
   std::cout << "static memory " << (idx->getMemory() / 1000000) << "\n";
 
