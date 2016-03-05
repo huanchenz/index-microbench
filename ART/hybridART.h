@@ -17,12 +17,15 @@
 #include <vector>
 #include <deque>
 
-//#define MORE_NODE_TYPES 1;
+//#define DEBUG 1;
+//#define DEBUG 2;
 
 class hybridART {
 
 public:
   static const unsigned MERGE=1;
+  static const unsigned MERGE_THOLD=1000000;
+  static const unsigned MERGE_RATIO=5;
 
   // Constants for the node types
   static const int8_t NodeType4=0;
@@ -35,10 +38,7 @@ public:
   static const int8_t NodeTypeDP=1;
   static const int8_t NodeTypeF=2;
   static const int8_t NodeTypeFP=3;
-#ifdef MORE_NODE_TYPES
-  static const int8_t NodeTypeP=4;
-  static const int8_t NodeTypePP=5;
-#endif
+  static const int8_t NodeTypeU=4;
 
   // The maximum prefix length for compressed paths stored in the
   // header, if the path is longer it is loaded from the database on
@@ -47,9 +47,8 @@ public:
 
   static const unsigned NodeDItemTHold=227;
   //static const unsigned NodeDItemTHold=48;
-#ifdef MORE_NODE_TYPES
-  static const unsigned NodePItemTHold=16;
-#endif
+  //static const unsigned UpperLevelTHold=10000;
+  static const unsigned UpperLevelTHold=0;
 
   // Shared header of all inner nodes
   struct Node {
@@ -164,6 +163,7 @@ public:
     NodeFP(uint16_t size, uint32_t pl) : NodeStatic(NodeTypeFP) {
       count = size;
       prefixLength = pl;
+      memset(data, 0, prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*));
     }
 
     uint8_t* prefix() {
@@ -175,50 +175,25 @@ public:
     }
   };
 
-#ifdef MORE_NODE_TYPES
-  static const uint8_t emptyMarker_static=255;
-
-  struct NodeP : NodeStatic {
-    uint8_t count;
-    uint8_t childIndex[256];
-    NodeStatic* child[0];
-
-    NodeP() : NodeStatic(NodeTypeP) {}
-    NodeP(uint8_t size) : NodeStatic(NodeTypeP) {
-      count = size;
-      memset(childIndex, emptyMarker_static, sizeof(childIndex));
-    }
-  };
-
-  struct NodePP : NodeStatic {
-    uint8_t count;
+  struct NodeU : NodeStatic {
+    uint16_t count;
     uint32_t prefixLength;
+    uint8_t prefix[maxPrefixLength];
     uint8_t data[0];
 
-    NodePP() : NodeStatic(NodeTypePP) {}
-    NodePP(uint8_t size) : NodeStatic(NodeTypePP) {
+    NodeU() : NodeStatic(NodeTypeU) {}
+    NodeU(uint16_t size) : NodeStatic(NodeTypeU) {
       count = size;
-      memset(&data[prefixLength], emptyMarker_static, 256);
-    }
-    NodePP(uint8_t size, uint32_t pl) : NodeStatic(NodeTypePP) {
-      count = size;
-      prefixLength = pl;
-      memset(&data[prefixLength], emptyMarker_static, 256);
     }
 
-    uint8_t* prefix() {
+    uint8_t* key() {
       return data;
     }
 
-    uint8_t* childIndex() {
-      return &data[prefixLength];
-    }
-
     NodeStatic** child() {
-      return (NodeStatic**)(&data[prefixLength + 256]);
+      return (NodeStatic**)(&data[count]);
     }
   };
-#endif
 
   // Node with up to 4 children
   struct Node4 : Node {
@@ -295,6 +270,47 @@ public:
 	  return false;
       return true;
     }
+    }
+    return true;
+  }
+
+  inline bool isInner(NodeStatic* n) {
+    switch (n->type) {
+    case NodeTypeD: {
+      NodeD* node=static_cast<NodeD*>(n);
+      for (unsigned i = 0; i < node->count; i++)
+	if (isLeaf(node->child()[i]))
+	  return false;
+      return true;
+    }
+    case NodeTypeDP: {
+      NodeDP* node=static_cast<NodeDP*>(n);
+      for (unsigned i = 0; i < node->count; i++)
+	if (isLeaf(node->child()[i]))
+	  return false;
+      return true;
+    }
+    case NodeTypeF: {
+      NodeF* node=static_cast<NodeF*>(n);
+      for (unsigned i = 0; i < 256; i++)
+	if (node->child[i] && isLeaf(node->child[i]))
+	  return false;
+      return true;
+    }
+    case NodeTypeFP: {
+      NodeFP* node=static_cast<NodeFP*>(n);
+      for (unsigned i = 0; i < 256; i++)
+	if (node->child()[i] && isLeaf(node->child()[i]))
+	  return false;
+      return true;
+    }
+    case NodeTypeU: {
+      NodeU* node=static_cast<NodeU*>(n);
+      for (unsigned i = 0; i < node->count; i++)
+	if (isLeaf(node->child()[i]))
+	  return false;
+      return true;
+    } 
     }
     return true;
   }
@@ -456,24 +472,6 @@ public:
       NodeFP* node = static_cast<NodeFP*>(n);
       return &(node->child()[keyByte]);
     }
-
-#ifdef MORE_NODE_TYPES
-    case NodeTypeP: {
-      NodeP* node = static_cast<NodeP*>(n);
-      if (node->childIndex[keyByte] != emptyMarker_static)
-	return &node->child[node->childIndex[keyByte]];
-      else
-	return &nullNode_static;
-    }
-
-    case NodeTypePP: {
-      NodePP* node = static_cast<NodePP*>(n);
-      if (node->childIndex()[keyByte] != emptyMarker_static)
-	return &node->child()[node->childIndex()[keyByte]];
-      else
-	return &nullNode_static;
-    }
-#endif
     }
     std::cout << "throw_static, type = " << (uint64_t)n->type <<"\n";
     throw; // Unreachable
@@ -546,23 +544,6 @@ public:
 	pos++;
       return minimum(n->child()[pos]);
     }
-
-#ifdef MORE_NODE_TYPES
-    case NodeTypeP: {
-      NodeP* n=static_cast<NodeP*>(node);
-      unsigned pos=0;
-      while (n->childIndex[pos]==emptyMarker_static)
-	pos++;
-      return minimum(n->child[n->childIndex[pos]]);
-    }
-    case NodeTypePP: {
-      NodePP* n=static_cast<NodePP*>(node);
-      unsigned pos=0;
-      while (n->childIndex()[pos]==emptyMarker_static)
-	pos++;
-      return minimum(n->child()[n->childIndex()[pos]]);
-    }
-#endif
     }
     throw; // Unreachable
   }
@@ -633,23 +614,6 @@ public:
 	pos++;
       return maximum(n->child()[pos]);
     }
-
-#ifdef MORE_NODE_TYPES
-    case NodeTypeP: {
-      NodeP* n=static_cast<NodeP*>(node);
-      unsigned pos=0;
-      while (n->childIndex[pos]==emptyMarker_static)
-	pos++;
-      return maximum(n->child[n->childIndex[pos]]);
-    }
-    case NodeTypePP: {
-      NodePP* n=static_cast<NodePP*>(node);
-      unsigned pos=0;
-      while (n->childIndex()[pos]==emptyMarker_static)
-	pos++;
-      return maximum(n->child()[n->childIndex()[pos]]);
-    }
-#endif
     }
     throw; // Unreachable
   }
@@ -745,31 +709,6 @@ public:
       }
       return pos;
     }
-
-#ifdef MORE_NODE_TYPES
-    case NodeTypeP: {
-      return 0;
-    }
-    case NodeTypePP: {
-      NodePP* n = static_cast<NodePP*>(node);
-      unsigned pos;
-      if (n->prefixLength > maxPrefixLength) {
-	for (pos = 0; pos < maxPrefixLength; pos++)
-	  if (key[depth+pos] != n->prefix()[pos])
-	    return pos;
-	uint8_t minKey[maxKeyLength];
-	loadKey(getLeafValue(minimum(n)),minKey);
-	for (; pos< n->prefixLength; pos++)
-	  if (key[depth+pos] != minKey[depth+pos])
-	    return pos;
-      } else {
-	for (pos = 0; pos < n->prefixLength; pos++)
-	  if (key[depth+pos] != n->prefix()[pos])
-	    return pos;
-      }
-      return pos;
-    }
-#endif
     }
     return 0;
   }
@@ -853,18 +792,6 @@ public:
 	  skippedPrefix=true;
 	depth += n->prefixLength;
       }
-#ifdef MORE_NODE_TYPES
-      case NodeTypePP: {
-	NodePP* n = static_cast<NodePP*>(node);
-	if (n->prefixLength < maxPrefixLength) {
-	  for (unsigned pos=0; pos<n->prefixLength; pos++)
-	    if (key[depth+pos] != n->prefix()[pos])
-	      return NULL;
-	} else
-	  skippedPrefix=true;
-	depth += n->prefixLength;
-      }
-#endif
       }
 
       node=*findChild(node,key[depth]);
@@ -1161,23 +1088,24 @@ public:
   inline void insert(Node* node,Node** nodeRef,uint8_t key[],unsigned depth,uintptr_t value,unsigned maxKeyLength) {
     // Insert the leaf value into the tree
 
-    //std::cout << (uint64_t)key[depth] << "\t" << depth << "\t" << value << "\n";
-
     if (node==NULL) {
       *nodeRef=makeLeaf(value);
+      num_items++; //h
       return;
     }
 
     if (isLeaf(node)) {
       // Replace leaf with Node4 and store both leaves in it
       uint8_t existingKey[maxKeyLength];
-      loadKey(getLeafValue(node),existingKey);
+      //loadKey(getLeafValue(node),existingKey);
+      loadKey(getLeafValue(node),existingKey,key_length);
       unsigned newPrefixLength=0;
       //huanchen
       while ((depth + newPrefixLength < maxKeyLength) && (existingKey[depth+newPrefixLength]==key[depth+newPrefixLength]))
 	newPrefixLength++;
       if (depth + newPrefixLength >= maxKeyLength)
 	return;
+
       //while (existingKey[depth+newPrefixLength]==key[depth+newPrefixLength])
       //newPrefixLength++;
 
@@ -1192,6 +1120,7 @@ public:
 
       insertNode4(newNode,nodeRef,existingKey[depth+newPrefixLength],node);
       insertNode4(newNode,nodeRef,key[depth+newPrefixLength],makeLeaf(value));
+      num_items++; //h
       return;
     }
 
@@ -1216,10 +1145,12 @@ public:
 	  node->prefixLength-=(mismatchPos+1);
 	  uint8_t minKey[maxKeyLength];
 	  loadKey(getLeafValue(minimum(node)),minKey);
+	  //loadKey(getLeafValue(minimum(node)),minKey,key_length);
 	  insertNode4(newNode,nodeRef,minKey[depth+mismatchPos],node);
 	  memmove(node->prefix,minKey+depth+mismatchPos+1,min(node->prefixLength,maxPrefixLength));
 	}
 	insertNode4(newNode,nodeRef,key[depth+mismatchPos],makeLeaf(value));
+	num_items++; //h
 	return;
       }
       depth+=node->prefixLength;
@@ -1240,6 +1171,7 @@ public:
     case NodeType48: insertNode48(static_cast<Node48*>(node),nodeRef,key[depth],newNode); break;
     case NodeType256: insertNode256(static_cast<Node256*>(node),nodeRef,key[depth],newNode); break;
     }
+    num_items++; //h
   }
 
   inline void insertNode4(Node4* node,Node** nodeRef,uint8_t keyByte,Node* child) {
@@ -1485,9 +1417,241 @@ public:
     }
   }
 
+
+  //huanchen
+  inline void print_static_node(NodeStatic* n) {
+    if (!n)
+      std::cout << "NULL\n";
+
+    if (!isLeaf(n)) {
+      switch (n->type) {
+      case NodeTypeD: {
+	NodeD* node = static_cast<NodeD*>(n);
+	std::cout << "NodeD(" << (uint64_t)node->count << ")[0]\n";
+	break;
+      }
+      case NodeTypeDP: {
+	NodeDP* node = static_cast<NodeDP*>(n);
+	std::cout << "NodeDP(" << (uint64_t)node->count << ")[" << node->prefixLength << "]\n";
+	break;
+      }
+      case NodeTypeF: {
+	NodeF* node = static_cast<NodeF*>(n);
+	std::cout << "NodeF(" << (uint64_t)node->count << ")[0]\n";
+	break;
+      }
+      case NodeTypeFP: {
+	NodeFP* node = static_cast<NodeFP*>(n);
+	std::cout << "NodeFP(" << (uint64_t)node->count << ")[" << node->prefixLength << "]\n";
+	break;
+      }
+      case NodeTypeU: {
+	NodeU* node = static_cast<NodeU*>(n);
+	std::cout << "NodeU(" << (uint64_t)node->count << ")[" << node->prefixLength << "]\n";
+	break;
+      }
+      }
+    }
+    else
+      std::cout << "Leaf\n";
+  }
+
+
+  //huanchen
+  inline void print_tree(Node* r) {
+    if (!r)
+      return;
+    int level_item = 1;
+    int next_level_item = 0;
+    std::deque<Node*> node_queue;
+    node_queue.push_back(r);
+    while (!node_queue.empty()) {
+      Node* n = node_queue.front();
+      if (!isLeaf(n)) {
+	int leaf_count = 0;
+	switch (n->type) {
+	case NodeType4: {
+	  Node4* node = static_cast<Node4*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (isLeaf(node->child[i]))
+	      leaf_count++;
+	    node_queue.push_back(node->child[i]);
+	  }
+	  next_level_item += node->count;
+	  std::cout << "Node4(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "]";
+	  break;
+	}
+	case NodeType16: {
+	  Node16* node = static_cast<Node16*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (isLeaf(node->child[i]))
+	      leaf_count++;
+	    node_queue.push_back(node->child[i]);
+	  }
+	  next_level_item += node->count;
+	  std::cout << "Node16(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "] ";
+	  break;
+	}
+	case NodeType48: {
+	  Node48* node = static_cast<Node48*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->childIndex[i] != emptyMarker) {
+	      if (isLeaf(node->child[node->childIndex[i]]))
+		leaf_count++;
+	      node_queue.push_back(node->child[node->childIndex[i]]);
+	      next_level_item++;
+	    }
+	  }
+	  std::cout << "Node48(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "] ";
+	  break;
+	}
+	case NodeType256: {
+	  Node256* node = static_cast<Node256*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->child[i]) {
+	      if (isLeaf(node->child[i]))
+		leaf_count++;
+	      node_queue.push_back(node->child[i]);
+	      next_level_item++;
+	    }
+	  }
+	  std::cout << "Node256(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "] ";
+	  break;
+	}
+	}
+      }
+      node_queue.pop_front();
+      level_item--;
+      if (level_item == 0) {
+	std::cout << "\n";
+	level_item = next_level_item;
+	next_level_item = 0;
+      }
+    }
+    //std::cout << "level = " << level_item << "\n";
+    //std::cout << "next_level = " << next_level_item << "\n";
+    std::cout << "\n";
+  }
+
+
+  //huanchen
+  inline void print_static_tree(NodeStatic* r) {
+    if (!r)
+      return;
+    int level_item = 1;
+    int next_level_item = 0;
+    std::deque<NodeStatic*> node_queue;
+    node_queue.push_back(r);
+    while (!node_queue.empty()) {
+      NodeStatic* n = node_queue.front();
+      if (!isLeaf(n)) {
+	int leaf_count = 0;
+	switch (n->type) {
+	case NodeTypeD: {
+	  NodeD* node = static_cast<NodeD*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (isLeaf(node->child()[i]))
+	      leaf_count++;
+	    node_queue.push_back(node->child()[i]);
+	  }
+	  next_level_item += node->count;
+	  //std::cout << "NodeD(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[0] ";
+	  std::cout << "D(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[0]{";
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (!isLeaf(node->child()[i]))
+	      std::cout << (uint64_t)(flipSign(node->key()[i])) << " ";
+	    else
+	      std::cout << (uint64_t)(flipSign(node->key()[i])) << "(L) ";
+	  }
+	  std::cout << "}\t";
+
+	  break;
+	}
+	case NodeTypeDP: {
+	  NodeDP* node = static_cast<NodeDP*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (isLeaf(node->child()[i]))
+	      leaf_count++;
+	    node_queue.push_back(node->child()[i]);
+	  }
+	  next_level_item += node->count;
+	  std::cout << "DP(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "]{";
+	  for (unsigned i = 0; i < node->count; i++)
+	    if (!isLeaf(node->child()[i]))
+	      std::cout << (uint64_t)(flipSign(node->key()[i])) << " ";
+	  std::cout << "}\t";
+
+	  break;
+	}
+	case NodeTypeF: {
+	  NodeF* node = static_cast<NodeF*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->child[i]) {
+	      if (isLeaf(node->child[i]))
+		leaf_count++;
+	      node_queue.push_back(node->child[i]);
+	      next_level_item++;
+	    }
+	  }
+	  //std::cout << "NodeF(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[0] ";
+	  std::cout << "F(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[0]{";
+	  for (unsigned i = 0; i < 256; i++)
+	    if (node->child[i])
+	      if (!isLeaf(node->child[i]))
+		std::cout << (uint64_t)(i) << " ";
+	  std::cout << "}\t";
+
+	  break;
+	}
+	case NodeTypeFP: {
+	  NodeFP* node = static_cast<NodeFP*>(n);
+	  for (unsigned i = 0; i < 256; i++) {
+	    if (node->child()[i]) {
+	      if (isLeaf(node->child()[i]))
+		leaf_count++;
+	      node_queue.push_back(node->child()[i]);
+	      next_level_item++;
+	    }
+	  }
+	  //std::cout << "NodeFP(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "] ";
+	  std::cout << "FP(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "]{";
+	  for (unsigned i = 0; i < 256; i++)
+	    if (node->child()[i])
+	      if (!isLeaf(node->child()[i]))
+		std::cout << (uint64_t)(i) << " ";
+	  std::cout << "}\t";
+
+	  break;
+	}
+	case NodeTypeU: {
+	  NodeU* node = static_cast<NodeU*>(n);
+	  for (unsigned i = 0; i < node->count; i++) {
+	    if (isLeaf(node->child()[i]))
+	      leaf_count++;
+	    node_queue.push_back(node->child()[i]);
+	  }
+	  next_level_item += node->count;
+	  std::cout << "NodeU(" << (uint64_t)node->count << ")" << "<" << leaf_count << ">[" << node->prefixLength << "] ";
+	  break;
+	}
+	}
+      }
+      node_queue.pop_front();
+      level_item--;
+      if (level_item == 0) {
+	std::cout << "\n\n";
+	level_item = next_level_item;
+	next_level_item = 0;
+      }
+    }
+    //std::cout << "level = " << level_item << "\n";
+    //std::cout << "next_level = " << next_level_item << "\n";
+    std::cout << "\n";
+  }
+
   //huanchen
   inline void tree_info(Node* r) {
-    uint64_t num_items = 0;
+    uint64_t num_item = 0;
     uint64_t inner_size = 0;
     uint64_t leaf_size = 0;
     uint64_t num_no_prefix = 0;
@@ -1506,7 +1670,7 @@ public:
     while (!node_queue.empty()) {
       Node* n = node_queue.front();
       if (!isLeaf(n)) {
-	num_items += n->count;
+	num_item += n->count;
 
 	if (isInner(n))
 	  inner_size += node_size(n);
@@ -1567,7 +1731,7 @@ public:
       }
       node_queue.pop_front();
     }
-    std::cout << "num items = " << num_items << "\n";
+    std::cout << "num items = " << num_item << "\n";
     std::cout << "inner size = " << inner_size << "\n";
     std::cout << "leaf size = " << leaf_size << "\n";
     std::cout << "num prefix 0 = " << num_no_prefix << "\n";
@@ -1703,7 +1867,7 @@ public:
   inline void Node_to_NodeDP(Node* n, NodeDP* n_static) {
     n_static->count = n->count;
     n_static->prefixLength = n->prefixLength;
-    for (unsigned i = 0; i < maxPrefixLength; i++)
+    for (unsigned i = 0; i < n->prefixLength; i++)
       n_static->prefix()[i] = n->prefix[i];
 
     if (n->type == NodeType4)
@@ -1778,7 +1942,7 @@ public:
   inline void Node_to_NodeFP(Node* n, NodeFP* n_static) {
     n_static->count = n->count;
     n_static->prefixLength = n->prefixLength;
-    for (unsigned i = 0; i < maxPrefixLength; i++)
+    for (unsigned i = 0; i < n->prefixLength; i++)
       n_static->prefix()[i] = n->prefix[i];
 
     if (n->type == NodeType4)
@@ -1790,112 +1954,6 @@ public:
     else if (n->type == NodeType256)
       Node256_to_NodeFP(static_cast<Node256*>(n), n_static);
   }
-
-#ifdef MORE_NODE_TYPES
-  //huanchen-static
-  inline void Node4_to_NodeP(Node4* n, NodeP* n_static) {
-    for (uint8_t i = 0; i < n->count; i++) {
-      n_static->childIndex[n->key[i]] = i;
-      n_static->child[i] = (NodeStatic*)n->child[i];
-    }
-  }
-
-  inline void Node16_to_NodeP(Node16* n, NodeP* n_static) {
-    for (uint8_t i = 0; i < n->count; i++) {
-      n_static->childIndex[flipSign(n->key[i])] = i;
-      n_static->child[i] = (NodeStatic*)n->child[i];
-    }
-  }
-
-  inline void Node48_to_NodeP(Node48* n, NodeP* n_static) {
-    uint8_t p = 0;
-    for (unsigned i = 0; i < 256; i++) {
-      if (n->childIndex[i] != emptyMarker) {
-	n_static->childIndex[i] = p;
-	n_static->child[p] = (NodeStatic*)n->child[n->childIndex[i]];
-	p++;
-      }
-    }
-  }
-
-  inline void Node256_to_NodeP(Node256* n, NodeP* n_static) {
-    uint8_t p = 0;
-    for (unsigned i = 0; i < 256; i++) {
-      if (n->child[i]) {
-	n_static->childIndex[i] = p;
-	n_static->child[p] = (NodeStatic*)n->child[i];
-	p++;
-      }
-    }
-  }
-
-  inline void Node_to_NodeP(Node* n, NodeP* n_static) {
-    n_static->count = n->count;
-
-    if (n->type == NodeType4)
-      Node4_to_NodeP(static_cast<Node4*>(n), n_static);
-    else if (n->type == NodeType16)
-      Node16_to_NodeP(static_cast<Node16*>(n), n_static);
-    else if (n->type == NodeType48)
-      Node48_to_NodeP(static_cast<Node48*>(n), n_static);
-    else if (n->type == NodeType256)
-      Node256_to_NodeP(static_cast<Node256*>(n), n_static);
-  }
-
-
-  //huanchen-static
-  inline void Node4_to_NodePP(Node4* n, NodePP* n_static) {
-    for (uint8_t i = 0; i < n->count; i++) {
-      n_static->childIndex()[n->key[i]] = i;
-      n_static->child()[i] = (NodeStatic*)n->child[i];
-    }
-  }
-
-  inline void Node16_to_NodePP(Node16* n, NodePP* n_static) {
-    for (uint8_t i = 0; i < n->count; i++) {
-      n_static->childIndex()[flipSign(n->key[i])] = i;
-      n_static->child()[i] = (NodeStatic*)n->child[i];
-    }
-  }
-
-  inline void Node48_to_NodePP(Node48* n, NodePP* n_static) {
-    uint8_t p = 0;
-    for (unsigned i = 0; i < 256; i++) {
-      if (n->childIndex[i] != emptyMarker) {
-	n_static->childIndex()[i] = p;
-	n_static->child()[p] = (NodeStatic*)n->child[n->childIndex[i]];
-	p++;
-      }
-    }
-  }
-
-  inline void Node256_to_NodePP(Node256* n, NodePP* n_static) {
-    uint8_t p = 0;
-    for (unsigned i = 0; i < 256; i++) {
-      if (n->child[i]) {
-	n_static->childIndex()[i] = p;
-	n_static->child()[p] = (NodeStatic*)n->child[i];
-	p++;
-      }
-    }
-  }
-
-  inline void Node_to_NodePP(Node* n, NodePP* n_static) {
-    n_static->count = n->count;
-    n_static->prefixLength = n->prefixLength;
-    for (unsigned i = 0; i < maxPrefixLength; i++)
-      n_static->prefix()[i] = n->prefix[i];
-
-    if (n->type == NodeType4)
-      Node4_to_NodePP(static_cast<Node4*>(n), n_static);
-    else if (n->type == NodeType16)
-      Node16_to_NodePP(static_cast<Node16*>(n), n_static);
-    else if (n->type == NodeType48)
-      Node48_to_NodePP(static_cast<Node48*>(n), n_static);
-    else if (n->type == NodeType256)
-      Node256_to_NodePP(static_cast<Node256*>(n), n_static);
-  }
-#endif
 
   inline size_t node_size(Node* n) {
     switch (n->type) {
@@ -1932,39 +1990,75 @@ public:
       NodeFP* node = static_cast<NodeFP*>(n);
       return sizeof(NodeFP) + node->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
     }
+    }
+    return 0;
+  }
 
-#ifdef MORE_NODE_TYPES
-    case NodeTypeP: {
-      NodeP* node = static_cast<NodeP*>(n);
-      return sizeof(NodeP) + node->count * sizeof(NodeStatic*);
+  inline uint16_t node_count(NodeStatic* n) {
+    switch (n->type) {
+    case NodeTypeD: {
+      NodeD* node = static_cast<NodeD*>(n);
+      return node->count;
     }
-    case NodeTypePP: {
-      NodePP* node = static_cast<NodePP*>(n);
-      return sizeof(NodePP) + node->prefixLength * sizeof(uint8_t) + 256 * sizeof(uint8_t) + node->count * sizeof(NodeStatic*);
+    case NodeTypeDP: {
+      NodeDP* node = static_cast<NodeDP*>(n);
+      return node->count;
     }
-#endif
+    case NodeTypeF: {
+      NodeF* node = static_cast<NodeF*>(n);
+      return node->count;
+    }
+    case NodeTypeFP: {
+      NodeFP* node = static_cast<NodeFP*>(n);
+      return node->count;
+    }
+    }
+    return 0;
+  }
+
+  inline size_t get_NodeU_size(NodeStatic* n) {
+    switch (n->type) {
+    case NodeTypeD: {
+      NodeD* node = static_cast<NodeD*>(n);
+      return sizeof(NodeU) + node->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+    }
+    case NodeTypeDP: {
+      NodeDP* node = static_cast<NodeDP*>(n);
+      return sizeof(NodeU) + node->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+    }
+    case NodeTypeF: {
+      NodeF* node = static_cast<NodeF*>(n);
+      return sizeof(NodeU) + node->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+    }
+    case NodeTypeFP: {
+      NodeFP* node = static_cast<NodeFP*>(n);
+      return sizeof(NodeU) + node->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+    }
     }
     return 0;
   }
 
 
-  inline void first_merge() {
-    if (!root) return;
+  inline NodeStatic* convert_to_static() {
+    if (!root) return NULL;
 
     Node* n = root;
     NodeStatic* n_new = NULL;
     NodeStatic* n_new_parent = NULL;
+    NodeStatic* returnNode = NULL;
     int parent_pos = -1;
 
     std::deque<Node*> node_queue;
     std::deque<NodeStatic*> new_node_queue;
 
     node_queue.push_back(n);
-    int count = 0;
+    int node_count = 0;
     while (!node_queue.empty()) {
       n = node_queue.front();
       if (!isLeaf(n)) {
-	if ((n->count > NodeDItemTHold) || isInner(n)) {
+	if ((n->count > NodeDItemTHold) || isInner(n) || (node_count < UpperLevelTHold)) {
+	  //if ((n->count > NodeDItemTHold) || isInner(n)) {
+	  //if (n->count > NodeDItemTHold) {
 	  if (n->prefixLength) {
 	    size_t size = sizeof(NodeFP) + n->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
 	    void* ptr = malloc(size);
@@ -1988,33 +2082,6 @@ public:
 		node_queue.push_back((Node*)n_static->child[i]);
 	  }
 	}
-
-#ifdef MORE_NODE_TYPES
-	else if (n->count > NodePItemTHold) {
-	  if (n->prefixLength) {
-	    size_t size = sizeof(NodePP) + n->prefixLength * sizeof(uint8_t) + 256 * sizeof(uint8_t) + n->count * sizeof(NodeStatic*);
-	    void* ptr = malloc(size);
-	    NodePP* n_static = new(ptr) NodePP(n->count, n->prefixLength);
-	    nodePP_count++; //h
-	    Node_to_NodePP(n, n_static);
-	    n_new = n_static;
-	    for (unsigned i = 0; i < n_static->count; i++)
-	      if (!isLeaf(n_static->child()[i]))
-		node_queue.push_back((Node*)n_static->child()[i]);
-	  }
-	  else {
-	    size_t size = sizeof(NodeP) + n->count * sizeof(NodeStatic*);
-	    void* ptr = malloc(size);
-	    NodeP* n_static = new(ptr) NodeP(n->count);
-	    nodeP_count++; //h
-	    Node_to_NodeP(n, n_static);
-	    n_new = n_static;
-	    for (unsigned i = 0; i < n_static->count; i++)
-	      if (!isLeaf(n_static->child[i]))
-		node_queue.push_back((Node*)n_static->child[i]);
-	  }
-	}
-#endif
 	else {
 	  if (n->prefixLength) {
 	    size_t size = sizeof(NodeDP) + n->prefixLength * sizeof(uint8_t) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
@@ -2042,11 +2109,11 @@ public:
 
 	static_memory += node_size(n_new);
 	new_node_queue.push_back(n_new);
+	node_count++;
 
 	bool next_parent = false;
 
 	if (n_new_parent) {
-
 	  if (n_new_parent->type == NodeTypeD) {
 	    NodeD* node = static_cast<NodeD*>(n_new_parent);
 	    node->child()[parent_pos] = n_new;
@@ -2063,17 +2130,6 @@ public:
 	    NodeFP* node = static_cast<NodeFP*>(n_new_parent);
 	    node->child()[parent_pos] = n_new;
 	  }
-
-#ifdef MORE_NODE_TYPES
-	  else if (n_new_parent->type == NodeTypeP) {
-	    NodeP* node = static_cast<NodeP*>(n_new_parent);
-	    node->child[parent_pos] = n_new;
-	  }
-	  else if (n_new_parent->type == NodeTypePP) {
-	    NodePP* node = static_cast<NodePP*>(n_new_parent);
-	    node->child()[parent_pos] = n_new;
-	  }
-#endif
 	  else {
 	    std::cout << "Node Type Error1!\t" << (uint64_t)n_new_parent->type << "\n";
 	    break;
@@ -2081,7 +2137,7 @@ public:
 	}
 	else {
 	  n_new_parent = new_node_queue.front();
-	  static_root = new_node_queue.front();
+	  returnNode = new_node_queue.front();
 	}
 
 	do {
@@ -2119,25 +2175,6 @@ public:
 		next_parent = true;
 	    } while ((parent_pos < 256) && (!node->child()[parent_pos] || isLeaf(node->child()[parent_pos])));
 	  }
-
-#ifdef MORE_NODE_TYPES
-	  else if (n_new_parent->type == NodeTypeP) {
-	    NodeP* node = static_cast<NodeP*>(n_new_parent);
-	    do {
-	      parent_pos++;
-	      if (parent_pos >= node->count)
-		next_parent = true;
-	    } while ((parent_pos < node->count) && isLeaf(node->child[parent_pos]));
-	  }
-	  else if (n_new_parent->type == NodeTypePP) {
-	    NodePP* node = static_cast<NodePP*>(n_new_parent);
-	    do {
-	      parent_pos++;
-	      if (parent_pos >= node->count)
-		next_parent = true;
-	    } while ((parent_pos < node->count) && isLeaf(node->child()[parent_pos]));
-	  }
-#endif
 	  else {
 	    std::cout << "Node Type Error2!\t" << (uint64_t)n_new_parent->type << "\n";
 	    break;
@@ -2157,28 +2194,971 @@ public:
 	node_queue.pop_front();
       }
     }
+    return returnNode;
+  }
+
+  /*
+  inline NodeStatic* convert_to_static_first(Node* n) {
+    //std::cout << "convert to static\n";
+    //std::cout << "n->count = " << n->count << "\n";
+    if ((n->count > NodeDItemTHold) || isInner(n)) {
+      if (n->prefixLength) {
+	//std::cout << "create NodeFP\n";
+	size_t size = sizeof(NodeFP) + n->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
+	void* ptr = malloc(size);
+	NodeFP* n_static = new(ptr) NodeFP(n->count, n->prefixLength);
+	nodeFP_count++; //h
+	Node_to_NodeFP(n, n_static);
+	for (unsigned i = 0; i < 256; i++)
+	  if ((n_static->child()[i]) && (!isLeaf(n_static->child()[i])))
+	    n_static->child()[i] = convert_to_static_first((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+      else {
+	//std::cout << "create NodeF\n";
+	size_t size = sizeof(NodeF);
+	void* ptr = malloc(size);
+	NodeF* n_static = new(ptr) NodeF(n->count);
+	nodeF_count++; //h
+	Node_to_NodeF(n, n_static);
+	for (unsigned i = 0; i < 256; i++)
+	  if ((n_static->child[i]) && (!isLeaf(n_static->child[i])))
+	    n_static->child[i] = convert_to_static_first((Node*)n_static->child[i]);
+	delete n;
+	return n_static;
+      }
+    }
+    else {
+      if (n->prefixLength) {
+	//std::cout << "create NodeDP\n";
+	size_t size = sizeof(NodeDP) + n->prefixLength * sizeof(uint8_t) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeDP* n_static = new(ptr) NodeDP(n->count, n->prefixLength);
+	nodeDP_count++; //h
+	Node_to_NodeDP(n, n_static);
+	for (unsigned i = 0; i < n_static->count; i++)
+	  if (!isLeaf(n_static->child()[i]))
+	    n_static->child()[i] = convert_to_static_first((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+      else {
+	//std::cout << "create NodeD\n";
+	size_t size = sizeof(NodeD) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeD* n_static = new(ptr) NodeD(n->count);
+	nodeD_count++; //h
+	Node_to_NodeD(n, n_static);
+	for (unsigned i = 0; i < n_static->count; i++)
+	  if (!isLeaf(n_static->child()[i]))
+	    n_static->child()[i] = convert_to_static_first((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+    }
+  }
+*/
+
+  inline NodeStatic* convert_to_static(Node* n) {
+    /*
+    if (isInner(n) && n->count != 256) {
+      size_t sizeF = sizeof(NodeF);
+      void* ptrF = malloc(sizeF);
+      NodeF* n_staticF = new(ptrF) NodeF(n->count);
+      Node_to_NodeF(n, n_staticF);
+
+      size_t sizeD = sizeof(NodeD) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+      void* ptrD = malloc(sizeD);
+      NodeD* n_staticD = new(ptrD) NodeD(n->count);
+      Node_to_NodeD(n, n_staticD);
+
+      if (n_staticD->count != n_staticF->count) {
+	std::cout << "Count===========================\n";
+	std::cout << (uint64_t)n_staticD->count << ", " <<  (uint64_t)n_staticF->count << "\n";
+      }
+
+      unsigned p = 0;
+      for (unsigned i = 0; i < 256; i++) {
+	if (n_staticF->child[i]) {
+	  if (n_staticD->key()[p] != flipSign(i)) {
+	    std::cout << "Key********************************\n";
+	    std::cout << (uint64_t)n_staticD->key()[p] << ", " <<  (uint64_t)i << "\n";
+	  }
+	  if (n_staticD->child()[p] != n_staticF->child[i])
+	    std::cout << "Child******************************\n";
+	  p++;
+	}
+      }
+    }
+    */
+    //std::cout << "convert to static\n";
+    //std::cout << "n->count = " << n->count << "\n";
+    if ((n->count > NodeDItemTHold) || isInner(n)) {
+      if (n->prefixLength) {
+	//std::cout << "create NodeFP\n";
+	size_t size = sizeof(NodeFP) + n->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
+	void* ptr = malloc(size);
+	NodeFP* n_static = new(ptr) NodeFP(n->count, n->prefixLength);
+	nodeFP_count++; //h
+	Node_to_NodeFP(n, n_static);
+	for (unsigned i = 0; i < 256; i++)
+	  if ((n_static->child()[i]) && (!isLeaf(n_static->child()[i])))
+	    n_static->child()[i] = convert_to_static((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+      else {
+	//std::cout << "create NodeF\n";
+	size_t size = sizeof(NodeF);
+	void* ptr = malloc(size);
+	NodeF* n_static = new(ptr) NodeF(n->count);
+	nodeF_count++; //h
+	Node_to_NodeF(n, n_static);
+	for (unsigned i = 0; i < 256; i++)
+	  if ((n_static->child[i]) && (!isLeaf(n_static->child[i])))
+	    n_static->child[i] = convert_to_static((Node*)n_static->child[i]);
+	delete n;
+	return n_static;
+      }
+    }
+    else {
+      if (n->prefixLength) {
+	//std::cout << "create NodeDP\n";
+	size_t size = sizeof(NodeDP) + n->prefixLength * sizeof(uint8_t) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeDP* n_static = new(ptr) NodeDP(n->count, n->prefixLength);
+	nodeDP_count++; //h
+	Node_to_NodeDP(n, n_static);
+	for (unsigned i = 0; i < n_static->count; i++)
+	  if (!isLeaf(n_static->child()[i]))
+	    n_static->child()[i] = convert_to_static((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+      else {
+	//std::cout << "create NodeD\n";
+	size_t size = sizeof(NodeD) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeD* n_static = new(ptr) NodeD(n->count);
+	nodeD_count++; //h
+	Node_to_NodeD(n, n_static);
+	for (unsigned i = 0; i < n_static->count; i++)
+	  if (!isLeaf(n_static->child()[i]))
+	    n_static->child()[i] = convert_to_static((Node*)n_static->child()[i]);
+	delete n;
+	return n_static;
+      }
+    }
+  }
+
+
+  //huanchen-static
+  inline void NodeD_to_NodeU(NodeD* n, NodeU* n_static) {
+    n_static->count = n->count;
+    n_static->prefixLength = 0;
+    for (unsigned i = 0; i < n->count; i++) {
+      n_static->key()[i] = flipSign(n->key()[i]);
+      n_static->child()[i] = n->child()[i];
+    }
+  }
+
+  inline void NodeDP_to_NodeU(NodeDP* n, NodeU* n_static) {
+    n_static->count = n->count;
+    n_static->prefixLength = n->prefixLength;
+    for (unsigned i = 0; i < n->prefixLength; i++)
+      n_static->prefix[i] = n->prefix()[i];
+    for (unsigned i = 0; i < n->count; i++) {
+      n_static->key()[i] = flipSign(n->key()[i]);
+      n_static->child()[i] = n->child()[i];
+    }
+  }
+
+  inline void NodeF_to_NodeU(NodeF* n, NodeU* n_static) {
+    n_static->count = n->count;
+    n_static->prefixLength = 0;
+    unsigned int c = 0;
+    for (uint8_t i = 0; i < 255; i++) {
+      if (n->child[i]) {
+	n_static->key()[c] = i;
+	n_static->child()[c] = (NodeStatic*)n->child[i];
+	c++;
+      }
+    }
+    if (n->child[255]) {
+      n_static->key()[c] = 255;
+      n_static->child()[c] = (NodeStatic*)n->child[255];
+    }
+  }
+
+  inline void NodeFP_to_NodeU(NodeFP* n, NodeU* n_static) {
+    n_static->count = n->count;
+    n_static->prefixLength = n->prefixLength;
+    for (unsigned i = 0; i < n->prefixLength; i++)
+      n_static->prefix[i] = n->prefix()[i];
+    unsigned int c = 0;
+    for (uint8_t i = 0; i < 255; i++) {
+      if (n->child()[i]) {
+	n_static->key()[c] = i;
+	n_static->child()[c] = (NodeStatic*)n->child()[i];
+	c++;
+      }
+    }
+    if (n->child()[255]) {
+      n_static->key()[c] = 255;
+      n_static->child()[c] = (NodeStatic*)n->child()[255];
+    }
+  }
+
+  inline void NodeStatic_to_NodeU(NodeStatic* n, NodeU* n_static) {
+    if (n->type == NodeType4)
+      NodeD_to_NodeU(static_cast<NodeD*>(n), n_static);
+    else if (n->type == NodeType16)
+      NodeDP_to_NodeU(static_cast<NodeDP*>(n), n_static);
+    else if (n->type == NodeType48)
+      NodeF_to_NodeU(static_cast<NodeF*>(n), n_static);
+    else if (n->type == NodeType256)
+      NodeFP_to_NodeU(static_cast<NodeFP*>(n), n_static);
+  }
+
+
+  inline NodeStatic* NodeU_to_NodeStatic(NodeStatic* n_s) {
+    NodeU* n = static_cast<NodeU*>(n_s);
+    if ((n->count > NodeDItemTHold) || isInner(n_s)) {
+      if (n->prefixLength) {
+	size_t size = sizeof(NodeFP) + n->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
+	void* ptr = malloc(size);
+	NodeFP* n_static = new(ptr) NodeFP(n->count, n->prefixLength);
+	nodeFP_count++; //h
+	for (unsigned i = 0; i < n->prefixLength; i++)
+	  n_static->prefix()[i] = n->prefix[i];
+	for (unsigned i = 0; i < n->count; i++)
+	  n_static->child()[n->key()[i]] = n->child()[i];
+	free(n);
+	return n_static;
+      }
+      else {
+	size_t size = sizeof(NodeF);
+	void* ptr = malloc(size);
+	NodeF* n_static = new(ptr) NodeF(n->count);
+	nodeF_count++; //h
+	for (unsigned i = 0; i < n->count; i++)
+	  n_static->child[n->key()[i]] = n->child()[i];
+	free(n);
+	return n_static;
+      }
+    }
+    else {
+      if (n->prefixLength) {
+	size_t size = sizeof(NodeDP) + n->prefixLength * sizeof(uint8_t) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeDP* n_static = new(ptr) NodeDP(n->count, n->prefixLength);
+	nodeDP_count++; //h
+	for (unsigned i = 0; i < n->prefixLength; i++)
+	  n_static->prefix()[i] = n->prefix[i];
+	for (unsigned i = 0; i < n->count; i++) {
+	  n_static->key()[i] = n->key()[i];
+	  n_static->child()[i] = n->child()[i];
+	}
+	free(n);
+	return n_static;
+      }
+      else {
+	size_t size = sizeof(NodeD) + n->count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeD* n_static = new(ptr) NodeD(n->count);
+	nodeD_count++; //h
+	for (unsigned i = 0; i < n->count; i++) {
+	  n_static->key()[i] = n->key()[i];
+	  n_static->child()[i] = n->child()[i];
+	}
+	free(n);
+	return n_static;
+      }
+    }
+  }
+
+
+  inline NodeF* NodeD_to_NodeF(NodeD* nd) {
+    size_t size = sizeof(NodeF);
+    void* ptr = malloc(size);
+    NodeF* nf = new(ptr) NodeF(nd->count);
+    nodeF_count++; //h
+    static_memory += size; //h
+
+    for (unsigned i = 0; i < nd->count; i++)
+      nf->child[flipSign(nd->key()[i])] = nd->child()[i];
+
+    free(nd);
+    nodeD_count--; //h
+    static_memory -= node_size(nd); //h
+    return nf;
+  }
+
+  inline NodeFP* NodeDP_to_NodeFP(NodeDP* nd) {
+    size_t size = sizeof(NodeFP) + nd->prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
+    void* ptr = malloc(size);
+    NodeFP* nf = new(ptr) NodeFP(nd->count, nd->prefixLength);
+    nodeFP_count++; //h
+    static_memory += size; //h
+
+    for (unsigned i = 0; i < nd->prefixLength; i++)
+      nf->prefix()[i] = nd->prefix()[i];
+
+    for (unsigned i = 0; i < nd->count; i++)
+      nf->child()[flipSign(nd->key()[i])] = nd->child()[i];
+
+    free(nd);
+    nodeDP_count--; //h
+    static_memory -= node_size(nd); //h
+    return nf;
+  }
+
+  NodeU* create_1_item_NodeU(uint8_t key, NodeStatic* value) {
+    size_t size_n = sizeof(NodeU) + sizeof(uint8_t) + sizeof(NodeStatic*);
+    void* ptr = malloc(size_n);
+    NodeU* n = new(ptr) NodeU(1);
+    n->prefixLength = 0;
+    n->key()[0] = key;
+    n->child()[0] = value;
+    return n;
+  }
+
+
+  NodeStatic* merge_nodes(NodeStatic* m, NodeStatic* n, uint32_t prefixLength, uint8_t* prefix, int depth) {
+#ifdef DEBUG2
+    std::cout << "***********merge_nodes*************\n";
+    std::cout << "PL = " << prefixLength << "\t\t\t\tdepth = " << depth << "\n";  
+    print_static_node(m);
+    print_static_node(n);
+#endif
+
+    //==================convert nodes to type NodeU====================
+    NodeU* mu;
+    if (m->type == NodeTypeU)
+      mu = static_cast<NodeU*>(m);
+    else {
+      size_t size_m = get_NodeU_size(m);
+      void* ptr = malloc(size_m);
+      mu = new(ptr) NodeU(node_count(m));
+      NodeStatic_to_NodeU(m, mu);
+      static_memory -= node_size(m); //h
+      if (m->type == NodeTypeD)
+	nodeD_count--;
+      else if (m->type == NodeTypeDP)
+	nodeDP_count--;
+      else if (m->type == NodeTypeF)
+	nodeF_count--;
+      else if (m->type == NodeTypeFP)
+	nodeFP_count--;
+      free(m);
+    }
+
+    NodeU* nu;
+    if (n->type == NodeTypeU)
+      nu = static_cast<NodeU*>(n);
+    else {
+      size_t size_n = get_NodeU_size(n);
+      void* ptr = malloc(size_n);
+      nu = new(ptr) NodeU(node_count(n));
+      NodeStatic_to_NodeU(n, nu);
+      static_memory -= node_size(n); //h
+      if (n->type == NodeTypeD)
+	nodeD_count--;
+      else if (n->type == NodeTypeDP)
+	nodeDP_count--;
+      else if (n->type == NodeTypeF)
+	nodeF_count--;
+      else if (n->type == NodeTypeFP)
+	nodeFP_count--;
+      free(n);
+    }
+
+
+    //==================handle prefix==================================
+    if (mu->prefixLength != 0 || nu->prefixLength != 0) {
+#ifdef DEBUG2
+      std::cout << "HANDLE PREFIX\n";
+#endif
+      //find max matching prefix
+      uint32_t maxLength = mu->prefixLength;
+      if (nu->prefixLength < maxLength)
+	maxLength = nu->prefixLength;
+
+      int p = 0; //matching length
+      while (p < maxLength && mu->prefix[p] == nu->prefix[p])
+	p++;
+      
+      //copy inherited prefix
+      uint8_t pf[maxPrefixLength];
+      for (int i = 0; i < prefixLength; i++)
+	pf[i] = prefix[i];
+
+      //concatenate matching prefix to the inherited prefix
+      for (int i = 0; i < p; i++)
+	pf[prefixLength + i] = mu->prefix[i];
+
+      //create subnodes for merge
+      uint8_t key;
+      NodeU* new_mu;
+      if (mu->prefixLength > p) {
+	//create 1-item node
+	key = mu->prefix[p];
+	mu->prefixLength = mu->prefixLength - p - 1;
+	for (int i = 0; i < mu->prefixLength; i++)
+	  mu->prefix[i] = mu->prefix[p+1+i];
+	//new_mu = create_1_item_NodeU(mu->prefix[p], mu);
+	new_mu = create_1_item_NodeU(key, mu);
+      }
+      else { // mu->prefixLength == p
+	new_mu = mu;
+	new_mu->prefixLength = 0;
+      }
+
+      NodeU* new_nu;
+      if (nu->prefixLength > p) {
+	//create 1-item node
+	key = nu->prefix[p];
+	nu->prefixLength = nu->prefixLength - p - 1;
+	for (int i = 0; i < nu->prefixLength; i++)
+	  nu->prefix[i] = nu->prefix[p+1+i];
+	//new_nu = create_1_item_NodeU(nu->prefix[p], nu);
+	new_nu = create_1_item_NodeU(key, nu);
+      }
+      else { // nu->prefixLength == p
+	new_nu = nu;
+	new_nu->prefixLength = 0;
+      }
+
+      //recursive call
+      //return merge_nodes(new_mu, new_nu, prefixLength + p, pf, depth + p + 1);
+      return merge_nodes(new_mu, new_nu, prefixLength + p, pf, depth + p);
+    }
+
+    //===================determine the merged node size================
+    int i = 0, j = 0;
+    uint8_t new_node_count = 0;
+    while (i < mu->count || j < nu->count) {
+      if (i >= mu->count) {j++;}
+      else if (j >= nu->count) {i++;}
+      else if (mu->key()[i] < nu->key()[j]) {i++;}
+      else if (mu->key()[i] > nu->key()[j]) {j++;}
+      else {i++; j++;}
+      new_node_count++;
+    }
+
+
+    //std::cout << "new_node_count = " << (uint64_t)new_node_count << "\n";
+
+    //===================create new node and merge ====================
+    if (new_node_count > NodeDItemTHold || new_node_count == 0) {
+      uint16_t new_node_count16 = (new_node_count == 0) ? 256 : new_node_count;
+      if (prefixLength > 0) {
+	//std::cout << "Create NodeFP\n";
+	size_t size = sizeof(NodeFP) + prefixLength * sizeof(uint8_t) + 256 * sizeof(NodeStatic*);
+	void* ptr = malloc(size);
+	NodeFP* n_static = new(ptr) NodeFP(new_node_count16, prefixLength);
+	nodeFP_count++; //h
+	static_memory += size; //h
+	for (int k = 0; k < prefixLength; k++)
+	  n_static->prefix()[k] = prefix[k];
+
+	int i = 0, j = 0;
+	while (i < mu->count && j < nu->count) {
+	  if (mu->key()[i] < nu->key()[j]) {
+	    if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	      n_static->child()[mu->key()[i]] = NodeU_to_NodeStatic(mu->child()[i]);
+	    else
+	      n_static->child()[mu->key()[i]] = mu->child()[i];
+	    i++;
+	  }
+	  else if (mu->key()[i] > nu->key()[j]) {
+	    if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	      n_static->child()[nu->key()[j]] = NodeU_to_NodeStatic(nu->child()[j]);
+	    else
+	      n_static->child()[nu->key()[j]] = nu->child()[j];
+	    j++;
+	  }
+	  else {
+	    if (isLeaf(mu->child()[i]) && isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key_m[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key_m, key_length);
+	      uint8_t leaf_key_n[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key_n, key_length);
+
+	      //find max matching prefix
+	      uint32_t maxLength = key_length - depth - 1;
+	      int p = 0; //matching length
+	      while (p < maxLength && leaf_key_m[depth + 1 + p] == leaf_key_n[depth + 1 + p])
+		p++;
+
+	      if (p == maxLength) { // totally matching keys, that's a value update
+		n_static->child()[mu->key()[i]] = mu->child()[i];
+		num_items_static--;
+	      }
+	      else {
+		uint8_t pf[maxPrefixLength];
+		for (int k = 0; k < p; k++)
+		  pf[k] = leaf_key_m[depth + 1 + k];
+
+		//create subnodes for merge
+		NodeU* new_mu = create_1_item_NodeU(leaf_key_m[depth + 1 + p], mu->child()[i]);
+		NodeU* new_nu = create_1_item_NodeU(leaf_key_n[depth + 1 + p], nu->child()[j]);
+
+		//recursive call
+		n_static->child()[mu->key()[i]] = merge_nodes(new_mu, new_nu, p, pf, depth + p + 1);
+	      }
+	    }
+	    else if (isLeaf(mu->child()[i])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key, key_length);
+
+	      NodeU* new_mu = create_1_item_NodeU(leaf_key[depth + 1], mu->child()[i]);
+	      //recursive call
+	      n_static->child()[mu->key()[i]] = merge_nodes(new_mu, nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    else if (isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key, key_length);
+
+	      NodeU* new_nu = create_1_item_NodeU(leaf_key[depth + 1], nu->child()[j]);
+	      //recursive call
+	      n_static->child()[nu->key()[j]] = merge_nodes(mu->child()[i], new_nu, 0, NULL, depth + 1);
+	    }
+	    else {
+	      //recursive call
+	      n_static->child()[mu->key()[i]] = merge_nodes(mu->child()[i], nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    i++; j++;
+	  }
+	}
+
+	while (i < mu->count) {
+	  if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	    n_static->child()[mu->key()[i]] = NodeU_to_NodeStatic(mu->child()[i]);
+	  else
+	    n_static->child()[mu->key()[i]] = mu->child()[i];
+	  i++;
+	}
+
+	while (j < nu->count) {
+	  if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	    n_static->child()[nu->key()[j]] = NodeU_to_NodeStatic(nu->child()[j]);
+	  else
+	    n_static->child()[nu->key()[j]] = nu->child()[j];
+	  j++;
+	}
+
+	free(mu); free(nu);
+	return n_static;
+      }
+      else {
+	//std::cout << "Create NodeF\n";
+	size_t size = sizeof(NodeF);
+	void* ptr = malloc(size);
+	NodeF* n_static = new(ptr) NodeF(new_node_count16);
+	nodeF_count++; //h
+	static_memory += size; //h
+
+	int i = 0, j = 0;
+	while (i < mu->count && j < nu->count) {
+	  if (mu->key()[i] < nu->key()[j]) {
+	    if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	      n_static->child[mu->key()[i]] = NodeU_to_NodeStatic(mu->child()[i]);
+	    else
+	      n_static->child[mu->key()[i]] = mu->child()[i];
+	    i++;
+	  }
+	  else if (mu->key()[i] > nu->key()[j]) {
+	    if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	      n_static->child[nu->key()[j]] = NodeU_to_NodeStatic(nu->child()[j]);
+	    else
+	      n_static->child[nu->key()[j]] = nu->child()[j];
+	    j++;
+	  }
+	  else {
+	    if (isLeaf(mu->child()[i]) && isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key_m[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key_m, key_length);
+	      uint8_t leaf_key_n[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key_n, key_length);
+
+	      //find max matching prefix
+	      uint32_t maxLength = key_length - depth - 1;
+	      int p = 0; //matching length
+	      while (p < maxLength && leaf_key_m[depth + 1 + p] == leaf_key_n[depth + 1 + p])
+		p++;
+
+	      if (p == maxLength) { // totally matching keys, that's a value update
+		n_static->child[mu->key()[i]] = mu->child()[i];
+		num_items_static--;
+	      }
+	      else {
+		uint8_t pf[maxPrefixLength];
+		for (int k = 0; k < p; k++)
+		  pf[k] = leaf_key_m[depth + 1 + k];
+
+		//create subnodes for merge
+		NodeU* new_mu = create_1_item_NodeU(leaf_key_m[depth + 1 + p], mu->child()[i]);
+		NodeU* new_nu = create_1_item_NodeU(leaf_key_n[depth + 1 + p], nu->child()[j]);
+
+		//recursive call
+		n_static->child[mu->key()[i]] = merge_nodes(new_mu, new_nu, p, pf, depth + p + 1);
+	      }
+	    }
+	    else if (isLeaf(mu->child()[i])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key, key_length);
+
+	      NodeU* new_mu = create_1_item_NodeU(leaf_key[depth + 1], mu->child()[i]);
+	      //recursive call
+	      n_static->child[mu->key()[i]] = merge_nodes(new_mu, nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    else if (isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key, key_length);
+
+	      NodeU* new_nu = create_1_item_NodeU(leaf_key[depth + 1], nu->child()[j]);
+	      //recursive call
+	      n_static->child[nu->key()[j]] = merge_nodes(mu->child()[i], new_nu, 0, NULL, depth + 1);
+	    }
+	    else {
+	      //recursive call
+	      n_static->child[mu->key()[i]] = merge_nodes(mu->child()[i], nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    i++; j++;
+	  }
+	}
+
+	while (i < mu->count) {
+	  if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	    n_static->child[mu->key()[i]] = NodeU_to_NodeStatic(mu->child()[i]);
+	  else
+	    n_static->child[mu->key()[i]] = mu->child()[i];
+	  i++;
+	}
+
+	while (j < nu->count) {
+	  if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	    n_static->child[nu->key()[j]] = NodeU_to_NodeStatic(nu->child()[j]);
+	  else
+	    n_static->child[nu->key()[j]] = nu->child()[j];
+	  j++;
+	}
+
+	free(mu); free(nu);
+	return n_static;
+      }
+    }
+    else {
+      if (prefixLength > 0) {
+	//std::cout << "Create NodeDP\n";
+	size_t size = sizeof(NodeDP) + prefixLength * sizeof(uint8_t) + new_node_count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeDP* n_static = new(ptr) NodeDP(new_node_count, prefixLength);
+	nodeDP_count++; //h
+	static_memory += size; //h
+	for (int k = 0; k < prefixLength; k++)
+	  n_static->prefix()[k] = prefix[k];
+
+	int i = 0, j = 0, l = 0;
+	while (i < mu->count && j < nu->count) {
+	  if (mu->key()[i] < nu->key()[j]) {
+	    if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU)) {
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      n_static->child()[l] = NodeU_to_NodeStatic(mu->child()[i]);
+	    }
+	    else {
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      n_static->child()[l] = mu->child()[i];
+	    }
+	    i++;
+	  }
+	  else if (mu->key()[i] > nu->key()[j]) {
+	    if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU)) {
+	      n_static->key()[l] = flipSign(nu->key()[j]);
+	      n_static->child()[l] = NodeU_to_NodeStatic(nu->child()[j]);
+	    }
+	    else {
+	      n_static->key()[l] = flipSign(nu->key()[j]);
+	      n_static->child()[l] = nu->child()[j];
+	    }
+	    j++;
+	  }
+	  else {
+	    if (isLeaf(mu->child()[i]) && isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key_m[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key_m, key_length);
+	      uint8_t leaf_key_n[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key_n, key_length);
+
+	      //find max matching prefix
+	      uint32_t maxLength = key_length - depth - 1;
+	      int p = 0; //matching length
+	      while (p < maxLength && leaf_key_m[depth + 1 + p] == leaf_key_n[depth + 1 + p])
+		p++;
+
+	      if (p == maxLength) { // totally matching keys, that's a value update
+		n_static->key()[l] = flipSign(mu->key()[i]);
+		n_static->child()[l] = mu->child()[i];
+		num_items_static--;
+	      }
+	      else {
+		uint8_t pf[maxPrefixLength];
+		for (int k = 0; k < p; k++)
+		  pf[k] = leaf_key_m[depth + 1 + k];
+
+		//create subnodes for merge
+		NodeU* new_mu = create_1_item_NodeU(leaf_key_m[depth + 1 + p], mu->child()[i]);
+		NodeU* new_nu = create_1_item_NodeU(leaf_key_n[depth + 1 + p], nu->child()[j]);
+
+		//recursive call
+		n_static->key()[l] = flipSign(mu->key()[i]);
+		//std::cout << "1\n";
+		n_static->child()[l] = merge_nodes(new_mu, new_nu, p, pf, depth + p + 1);
+	      }
+	    }
+	    else if (isLeaf(mu->child()[i])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key, key_length);
+
+	      NodeU* new_mu = create_1_item_NodeU(leaf_key[depth + 1], mu->child()[i]);
+	      //recursive call
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      //std::cout << "2\n";
+	      n_static->child()[l] = merge_nodes(new_mu, nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    else if (isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key, key_length);
+
+	      NodeU* new_nu = create_1_item_NodeU(leaf_key[depth + 1], nu->child()[j]);
+	      //recursive call
+	      n_static->key()[l] = flipSign(nu->key()[j]);
+	      //std::cout << "3\n";
+	      n_static->child()[l] = merge_nodes(mu->child()[i], new_nu, 0, NULL, depth + 1);
+	    }
+	    else {
+	      //recursive call
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      //std::cout << "4\n";
+	      n_static->child()[l] = merge_nodes(mu->child()[i], nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    i++; j++;
+	  }
+	  l++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	while (i < mu->count) {
+	  n_static->key()[l] = flipSign(mu->key()[i]);
+	  if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	    n_static->child()[l] = NodeU_to_NodeStatic(mu->child()[i]);
+	  else
+	    n_static->child()[l] = mu->child()[i];
+	  l++; i++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	while (j < nu->count) {
+	  n_static->key()[l] = flipSign(nu->key()[j]);
+	  if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	    n_static->child()[l] = NodeU_to_NodeStatic(nu->child()[j]);
+	  else
+	    n_static->child()[l] = nu->child()[j];
+	  l++; j++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	free(mu); free(nu);
+
+	if (isInner(n_static))
+	  return NodeDP_to_NodeFP(n_static);
+
+	return n_static;
+      }
+      else {
+	//std::cout << "Create NodeD\n";
+
+	size_t size = sizeof(NodeD) + new_node_count * (sizeof(uint8_t) + sizeof(NodeStatic*));
+	void* ptr = malloc(size);
+	NodeD* n_static = new(ptr) NodeD(new_node_count);
+	nodeD_count++; //h
+	static_memory += size; //h
+
+	int i = 0, j = 0, l = 0;
+	while (i < mu->count && j < nu->count) {
+	  if (mu->key()[i] < nu->key()[j]) {
+	    n_static->key()[l] = flipSign(mu->key()[i]);
+	    if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	      n_static->child()[l] = NodeU_to_NodeStatic(mu->child()[i]);
+	    else
+	      n_static->child()[l] = mu->child()[i];
+	    i++;
+	  }
+	  else if (mu->key()[i] > nu->key()[j]) {
+	    n_static->key()[l] = flipSign(nu->key()[j]);
+	    if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	      n_static->child()[l] = NodeU_to_NodeStatic(nu->child()[j]);
+	    else
+	      n_static->child()[l] = nu->child()[j];
+	    j++;
+	  }
+	  else {
+	    if (isLeaf(mu->child()[i]) && isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key_m[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key_m, key_length);
+	      uint8_t leaf_key_n[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key_n, key_length);
+
+	      //find max matching prefix
+	      uint32_t maxLength = key_length - depth - 1;
+	      int p = 0; //matching length
+	      while (p < maxLength && leaf_key_m[depth + 1 + p] == leaf_key_n[depth + 1 + p])
+		p++;
+
+	      if (p == maxLength) { // totally matching keys, that's a value update
+		n_static->key()[l] = flipSign(mu->key()[i]);
+		n_static->child()[l] = mu->child()[i];
+		num_items_static--;
+	      }
+	      else {
+		uint8_t pf[maxPrefixLength];
+		for (int k = 0; k < p; k++)
+		  pf[k] = leaf_key_m[depth + 1 + k];
+
+		//create subnodes for merge
+		NodeU* new_mu = create_1_item_NodeU(leaf_key_m[depth + 1 + p], mu->child()[i]);
+		NodeU* new_nu = create_1_item_NodeU(leaf_key_n[depth + 1 + p], nu->child()[j]);
+
+		//recursive call
+		n_static->key()[l] = flipSign(mu->key()[i]);
+		//std::cout << "1\n";
+		n_static->child()[l] = merge_nodes(new_mu, new_nu, p, pf, depth + p + 1);
+	      }
+	    }
+	    else if (isLeaf(mu->child()[i])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(mu->child()[i]), leaf_key, key_length);
+
+	      NodeU* new_mu = create_1_item_NodeU(leaf_key[depth + 1], mu->child()[i]);
+	      //recursive call
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      //std::cout << "2\n";
+	      n_static->child()[l] = merge_nodes(new_mu, nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    else if (isLeaf(nu->child()[j])) {
+	      uint8_t leaf_key[key_length];
+	      loadKey(getLeafValue(nu->child()[j]), leaf_key, key_length);
+
+	      NodeU* new_nu = create_1_item_NodeU(leaf_key[depth + 1], nu->child()[j]);
+	      //recursive call
+	      n_static->key()[l] = flipSign(nu->key()[j]);
+	      //std::cout << "3\n";
+	      n_static->child()[l] = merge_nodes(mu->child()[i], new_nu, 0, NULL, depth + 1);
+	    }
+	    else {
+	      //recursive call
+	      n_static->key()[l] = flipSign(mu->key()[i]);
+	      //std::cout << "4\n";
+	      n_static->child()[l] = merge_nodes(mu->child()[i], nu->child()[j], 0, NULL, depth + 1);
+	    }
+	    i++; j++;
+	  }
+	  l++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	while (i < mu->count) {
+	  n_static->key()[l] = flipSign(mu->key()[i]);
+	  if (!isLeaf(mu->child()[i]) && (mu->child()[i]->type == NodeTypeU))
+	    n_static->child()[l] = NodeU_to_NodeStatic(mu->child()[i]);
+	  else
+	    n_static->child()[l] = mu->child()[i];
+	  l++; i++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	while (j < nu->count) {
+	  n_static->key()[l] = flipSign(nu->key()[j]);
+	  if (!isLeaf(nu->child()[j]) && (nu->child()[j]->type == NodeTypeU))
+	    n_static->child()[l] = NodeU_to_NodeStatic(nu->child()[j]);
+	  else
+	    n_static->child()[l] = nu->child()[j];
+	  l++; j++;
+	  //std::cout << "l = " << l << ", i= " << i << ", j= " << j << "\n";
+	}
+
+	free(mu); free(nu);
+
+	if (isInner(n_static))
+	  return NodeD_to_NodeF(n_static);
+
+	//std::cout << "**************************\n";
+	return n_static;
+      }
+    }
   }
 
 
   void merge_trees() {
-    if (!MERGE)
-      return;
-    static_memory = 0;
+#ifdef DEBUG
+    std::cout << "==================================MERGE==================================\n";
+    std::cout << "Before: dynamic = " << num_items << "\tstatic = " << num_items_static << "\n";
+#endif
+    num_items_static += num_items;
+#ifdef DEBUG
+    print_tree(root);
+#endif
+    NodeStatic* root_s = convert_to_static();
     if (!static_root)
-      first_merge();
-    //root = NULL;
+      //static_root = convert_to_static();
+      static_root = root_s;
+      //static_root = convert_to_static_first(root);
+    else {
+      //NodeStatic* root_s = convert_to_static(root);
+#ifdef DEBUG
+      print_static_tree(root_s);
+      print_static_tree(static_root);
+#endif
+      //static_root = merge_nodes(convert_to_static(), static_root, 0, NULL, 0);
+      static_root = merge_nodes(root_s, static_root, 0, NULL, 0);
+    }
+#ifdef DEBUG
+    getMemory();
+#endif
+    root = NULL;
     memory = 0;
+    num_items = 0;
+    node4_count = 0;
+    node16_count = 0;
+    node48_count = 0;
+    node256_count = 0;
+#ifdef DEBUG
+    print_static_tree(static_root);
+    std::cout << "After: dynamic = " << num_items << "\tstatic = " << num_items_static << "\n";
+#endif
   }
 
 public:
   hybridART()
-    : root(NULL), static_root(NULL), memory(0), static_memory(0),
-    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0), nodeP_count(0), nodePP_count(0)
+    : root(NULL), static_root(NULL), memory(0), static_memory(0), key_length(8), num_items(0), num_items_static(0),
+    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0)
+  { }
+
+  hybridART(unsigned kl)
+    : root(NULL), static_root(NULL), memory(0), static_memory(0), key_length(kl), num_items(0), num_items_static(0),
+    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0)
   { }
 
   hybridART(Node* r, NodeStatic* sr)
-    : root(r), static_root(sr), memory(0), static_memory(0),
-    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0), nodeP_count(0), nodePP_count(0)
+    : root(r), static_root(sr), memory(0), static_memory(0), key_length(8), num_items(0), num_items_static(0),
+    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0)
+  { }
+
+  hybridART(Node* r, NodeStatic* sr, unsigned kl)
+    : root(r), static_root(sr), memory(0), static_memory(0), key_length(kl), num_items(0), num_items_static(0),
+    node4_count(0), node16_count(0), node48_count(0), node256_count(0), nodeD_count(0), nodeDP_count(0), nodeF_count(0), nodeFP_count(0)
   { }
 
   void insert(uint8_t key[], unsigned depth, uintptr_t value, unsigned maxKeyLength) {
@@ -2186,6 +3166,8 @@ public:
   }
 
   void insert(uint8_t key[], uintptr_t value, unsigned maxKeyLength) {
+    if (MERGE && num_items > MERGE_THOLD && num_items * MERGE_RATIO > num_items_static)
+      merge_trees();
     insert(root, &root, key, 0, value, maxKeyLength);
   }
   /*
@@ -2203,7 +3185,7 @@ public:
     return (uint64_t)0;
   }
   */
-  /*
+
   uint64_t lookup(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
     Node* leaf = lookup(root, key, keyLength, 0, maxKeyLength);
     if (!leaf) {
@@ -2216,15 +3198,15 @@ public:
       return getLeafValue(leaf);
     return (uint64_t)0;
   }
-  */
 
+  /*
   uint64_t lookup(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
     NodeStatic* leaf_static = lookup(static_root, key, keyLength, 0, maxKeyLength);
     if (isLeaf(leaf_static))
       return getLeafValue(leaf_static);
     return (uint64_t)0;
   }
-
+  */
   uint64_t lower_bound(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
     Node* leaf = lower_bound(root, key, keyLength, 0, maxKeyLength);
     if (isLeaf(leaf))
@@ -2269,9 +3251,9 @@ public:
     std::cout << "NodeDP = " << nodeDP_count << "\n";
     std::cout << "NodeF = " << nodeF_count << "\n";
     std::cout << "NodeFP = " << nodeFP_count << "\n";
-    std::cout << "NodeP = " << nodeP_count << "\n";
-    std::cout << "NodePP = " << nodePP_count << "\n";
 
+    //return memory;
+    //return static_memory;
     return memory + static_memory;
   }
 
@@ -2290,7 +3272,12 @@ private:
   uint64_t memory;
   uint64_t static_memory;
 
+  uint64_t num_items;
+  uint64_t num_items_static;
+
   std::vector<NodeCursor> node_stack;
+
+  unsigned key_length;
 
   //node stats
   uint64_t node4_count;
@@ -2301,8 +3288,6 @@ private:
   uint64_t nodeDP_count;
   uint64_t nodeF_count;
   uint64_t nodeFP_count;
-  uint64_t nodeP_count;
-  uint64_t nodePP_count;
 };
 
 static double gettime(void) {

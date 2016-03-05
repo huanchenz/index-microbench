@@ -106,6 +106,7 @@ class ArtIndex : public Index<KeyType, KeyComparator>
   }
 
   bool insert(KeyType key, uint64_t value) {
+    //std::cout << "insert " << key << "\n";
     loadKey(key);
     idx->insert(key_bytes, value, key_length);
     return true;
@@ -145,8 +146,12 @@ class ArtIndex : public Index<KeyType, KeyComparator>
       key_length = 8;
       key_bytes = new uint8_t [8];
     }
+    else {
+      key_length = 8;
+      key_bytes = new uint8_t [8];
+    }
 
-    idx = new hybridART();
+    idx = new hybridART(key_length);
   }
 
  private:
@@ -165,7 +170,7 @@ class ArtIndex : public Index<KeyType, KeyComparator>
 
   hybridART *idx;
   uint64_t key_type; // 0 = uint64_t
-  uint64_t key_length;
+  unsigned key_length;
   uint8_t* key_bytes;
 };
 
@@ -220,8 +225,12 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
       key_length = 31;
       key_bytes = new uint8_t [31];
     }
+    else {
+      key_length = 31;
+      key_bytes = new uint8_t [31];
+    }
 
-    idx = new hybridART();
+    idx = new hybridART(key_length);
   }
 
  private:
@@ -240,7 +249,7 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
 
   hybridART *idx;
   uint64_t key_type; // 0 = GenericKey<31>
-  uint64_t key_length;
+  unsigned key_length;
   uint8_t* key_bytes;
 };
 

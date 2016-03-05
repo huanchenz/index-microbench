@@ -163,6 +163,30 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   int txn_num = 0;
   uint64_t sum = 0;
   uint64_t s = 0;
+
+#ifdef PAPI_IPC
+  //Variables for PAPI
+  float real_time, proc_time, ipc;
+  long long ins;
+  int retval;
+
+  if((retval = PAPI_ipc(&real_time, &proc_time, &ins, &ipc)) < PAPI_OK) {    
+    printf("PAPI error: retval: %d\n", retval);
+    exit(1);
+  }
+#endif
+
+#ifdef PAPI_CACHE
+  int events[3] = {PAPI_L1_TCM, PAPI_L2_TCM, PAPI_L3_TCM};
+  long long counters[3] = {0, 0, 0};
+  int retval;
+
+  if ((retval = PAPI_start_counters(events, 3)) != PAPI_OK) {
+    fprintf(stderr, "PAPI failed to start counters: %s\n", PAPI_strerror(retval));
+    exit(1);
+  }
+#endif
+
   while ((txn_num < LIMIT) && (txn_num < (int)ops.size())) {
     if (ops[txn_num] == 0) { //INSERT
       idx->insert(keys[txn_num] + 1, values[txn_num]);
@@ -194,6 +218,30 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
     }
     txn_num++;
   }
+
+#ifdef PAPI_IPC
+  if((retval = PAPI_ipc(&real_time, &proc_time, &ins, &ipc)) < PAPI_OK) {    
+    printf("PAPI error: retval: %d\n", retval);
+    exit(1);
+  }
+
+  std::cout << "Time = " << real_time << "\n";
+  std::cout << "Tput = " << LIMIT/real_time << "\n";
+  std::cout << "Inst = " << ins << "\n";
+  std::cout << "IPC = " << ipc << "\n";
+#endif
+
+#ifdef PAPI_CACHE
+  if ((retval = PAPI_read_counters(counters, 3)) != PAPI_OK) {
+    fprintf(stderr, "PAPI failed to read counters: %s\n", PAPI_strerror(retval));
+    exit(1);
+  }
+
+  std::cout << "L1 miss = " << counters[0] << "\n";
+  std::cout << "L2 miss = " << counters[1] << "\n";
+  std::cout << "L3 miss = " << counters[2] << "\n";
+#endif
+
   end_time = get_now();
   tput = txn_num / (end_time - start_time) / 1000000; //Mops/sec
 

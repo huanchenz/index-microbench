@@ -7,6 +7,7 @@
 #include <utility>
 #include <time.h>
 #include <sys/time.h>
+#include <papi.h>
 
 #include "allocatortracker.h"
 
@@ -22,12 +23,15 @@
 //#include "stx-compress/btree_map.h"
 //#include "stx-compress/btree.h"
 
-//#define INIT_LIMIT 1000000
+//#define INIT_LIMIT 1001
 //#define LIMIT 1000000
 #define INIT_LIMIT 50000000
 #define LIMIT 10000000
 
 #define VALUES_PER_KEY 10
+
+//#define PAPI_IPC 1
+#define PAPI_CACHE 1
 
 
 //==============================================================

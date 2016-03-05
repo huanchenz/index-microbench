@@ -3,12 +3,12 @@ CXX = g++ -std=gnu++0x
 CFLAGS = -g -O2 -fPIC
 DEPSDIR := hybrid_index/.deps
 DEPCFLAGS = -MD -MF $(DEPSDIR)/$*.d -MP
-MEMMGR = -ltcmalloc_minimal
+MEMMGR = -ltcmalloc_minimal -lpapi
 
 SNAPPY = /usr/lib/libsnappy.so.1.3.0
 
-all: workload workload_string
-#all: workload 
+#all: workload workload_string
+all: workload 
 #all: workload_string
 #all: arttest
 
