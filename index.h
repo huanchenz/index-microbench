@@ -119,7 +119,8 @@ class ArtIndex : public Index<KeyType, KeyComparator>
 
   bool upsert(KeyType key, uint64_t value) {
     loadKey(key);
-    idx->insert(key_bytes, value, key_length);
+    //idx->insert(key_bytes, value, key_length);
+    idx->upsert(key_bytes, value, key_length, key_length);
     return true;
   }
 
@@ -198,7 +199,8 @@ class ArtIndex_Generic : public Index<KeyType, KeyComparator>
 
   bool upsert(KeyType key, uint64_t value) {
     loadKey(key);
-    idx->insert(key_bytes, value, key_length);
+    //idx->insert(key_bytes, value, key_length);
+    idx->upsert(key_bytes, value, key_length, key_length);
     return true;
   }
 

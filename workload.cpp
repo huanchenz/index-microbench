@@ -154,7 +154,7 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   std::cout << "insert " << tput << "\n";
   std::cout << "memory " << (idx->getMemory() / 1000000) << "\n\n";
 
-  idx->merge();
+  //idx->merge();
   std::cout << "static memory " << (idx->getMemory() / 1000000) << "\n\n";
   //return;
 
@@ -177,11 +177,12 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
 #endif
 
 #ifdef PAPI_CACHE
-  int events[3] = {PAPI_L1_TCM, PAPI_L2_TCM, PAPI_L3_TCM};
-  long long counters[3] = {0, 0, 0};
+  static const int EVENT_COUNT = 3;
+  int events[EVENT_COUNT] = {PAPI_L1_TCM, PAPI_L2_TCM, PAPI_L3_TCM};
+  long long counters[EVENT_COUNT];
   int retval;
 
-  if ((retval = PAPI_start_counters(events, 3)) != PAPI_OK) {
+  if ((retval = PAPI_start_counters(events, EVENT_COUNT)) != PAPI_OK) {
     fprintf(stderr, "PAPI failed to start counters: %s\n", PAPI_strerror(retval));
     exit(1);
   }
@@ -232,7 +233,7 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
 #endif
 
 #ifdef PAPI_CACHE
-  if ((retval = PAPI_read_counters(counters, 3)) != PAPI_OK) {
+  if ((retval = PAPI_read_counters(counters, EVENT_COUNT)) != PAPI_OK) {
     fprintf(stderr, "PAPI failed to read counters: %s\n", PAPI_strerror(retval));
     exit(1);
   }

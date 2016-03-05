@@ -18,14 +18,15 @@
 #include <deque>
 
 //#define DEBUG 1;
-//#define DEBUG 2;
+//#define DEBUG2 1;
+//#define MERGE_TIME 1;
 
 class hybridART {
 
 public:
   static const unsigned MERGE=1;
   static const unsigned MERGE_THOLD=1000000;
-  static const unsigned MERGE_RATIO=5;
+  static const unsigned MERGE_RATIO=10;
 
   // Constants for the node types
   static const int8_t NodeType4=0;
@@ -78,6 +79,12 @@ public:
     NodeStatic() : type(NodeTypeFP) {}
     NodeStatic(int8_t t) : type(t) {}
   };
+
+  //huanchen-static
+  typedef struct {
+    NodeStatic* node;
+    uint16_t cursor;
+  } NodeStaticCursor;
 
   struct NodeD : NodeStatic {
     uint8_t count;
@@ -831,12 +838,8 @@ public:
     if (!node)
       return NULL;
 
-    //std::cout << "hz1\n";
-
     if (isLeaf(node))
       return node;
-
-    //std::cout << "hz2\n";
 
     NodeCursor nc;
     nc.node = node;
@@ -845,17 +848,14 @@ public:
 
     switch (node->type) {
     case NodeType4: {
-      //std::cout << "hz3 Node4\n";
       Node4* n=static_cast<Node4*>(node);
       return minimum_recordPath(n->child[0]);
     }
     case NodeType16: {
-      //std::cout << "hz3 Node16\n";
       Node16* n=static_cast<Node16*>(node);
       return minimum_recordPath(n->child[0]);
     }
     case NodeType48: {
-      //std::cout << "hz3 Node48\n";
       Node48* n=static_cast<Node48*>(node);
       unsigned pos=0;
       while (n->childIndex[pos]==emptyMarker)
@@ -864,7 +864,6 @@ public:
       return minimum_recordPath(n->child[n->childIndex[pos]]);
     }
     case NodeType256: {
-      //std::cout << "hz3 Node256\n";
       Node256* n=static_cast<Node256*>(node);
       unsigned pos=0;
       while (!n->child[pos])
@@ -876,13 +875,54 @@ public:
     throw; // Unreachable
   }
 
+  //huanchen-static
+  inline NodeStatic* minimum_recordPath(NodeStatic* node) {
+    //std::cout << "minimum_recordPath\n";
+    if (!node)
+      return NULL;
+
+    if (isLeaf(node))
+      return node;
+
+    NodeStaticCursor nc;
+    nc.node = node;
+    nc.cursor = 0;
+    node_stack_static.push_back(nc);
+
+    switch (node->type) {
+    case NodeTypeD: {
+      NodeD* n=static_cast<NodeD*>(node);
+      return minimum_recordPath(n->child()[0]);
+    }
+    case NodeTypeDP: {
+      NodeDP* n=static_cast<NodeDP*>(node);
+      return minimum_recordPath(n->child()[0]);
+    }
+    case NodeTypeF: {
+      NodeF* n=static_cast<NodeF*>(node);
+      unsigned pos=0;
+      while (!n->child[pos])
+	pos++;
+      node_stack_static.back().cursor = pos;
+      return minimum_recordPath(n->child[pos]);
+    }
+    case NodeTypeFP: {
+      NodeFP* n=static_cast<NodeFP*>(node);
+      unsigned pos=0;
+      while (!n->child()[pos])
+	pos++;
+      node_stack_static.back().cursor = pos;
+      return minimum_recordPath(n->child()[pos]);
+    }
+    }
+    throw; // Unreachable
+  }
+
   inline Node* findChild_recordPath(Node* n,uint8_t keyByte) {
-    //std::cout << "findChild_recordPath\n";
     NodeCursor nc;
     nc.node = n;
     switch (n->type) {
     case NodeType4: {
-      //std::cout << "Node4\n";
       Node4* node=static_cast<Node4*>(n);
       for (unsigned i=0;i<node->count;i++) {
 	if (node->key[i]>=keyByte) {
@@ -898,7 +938,6 @@ public:
       return minimum_recordPath(nextSlot());
     }
     case NodeType16: {
-      //std::cout << "Node16\n";
       Node16* node=static_cast<Node16*>(n);
       for (unsigned i=0;i<node->count;i++) {
 	if (node->key[i]>=keyByte) {
@@ -914,7 +953,6 @@ public:
       return minimum_recordPath(nextSlot());
     }
     case NodeType48: {
-      //std::cout << "Node48\n";
       Node48* node=static_cast<Node48*>(n);
       if (node->childIndex[keyByte]!=emptyMarker) {
 	nc.cursor = keyByte;
@@ -934,7 +972,6 @@ public:
       }
     }
     case NodeType256: {
-      //std::cout << "Node256\n";
       Node256* node=static_cast<Node256*>(n);
       if (node->child[keyByte]!=NULL) {
 	nc.cursor = keyByte;
@@ -957,8 +994,84 @@ public:
     throw; // Unreachable
   }
 
+  //huanchen-static
+  inline NodeStatic* findChild_recordPath(NodeStatic* n,uint8_t keyByte) {
+    NodeStaticCursor nc;
+    nc.node = n;
+    switch (n->type) {
+    case NodeTypeD: {
+      NodeD* node=static_cast<NodeD*>(n);
+      for (unsigned i=0;i<node->count;i++) {
+	if (node->key()[i]>=keyByte) {
+	  nc.cursor = i;
+	  node_stack_static.push_back(nc);
+	  if (node->key()[i]==keyByte)
+	    return node->child()[i];
+	  else
+	    return minimum_recordPath(node->child()[i]);
+	}
+      }
+      node_stack_static.pop_back();
+      return minimum_recordPath(nextSlot_static());
+    }
+    case NodeTypeDP: {
+      NodeDP* node=static_cast<NodeDP*>(n);
+      for (unsigned i=0;i<node->count;i++) {
+	if (node->key()[i]>=keyByte) {
+	  nc.cursor = i;
+	  node_stack_static.push_back(nc);
+	  if (node->key()[i]==keyByte)
+	    return node->child()[i];
+	  else
+	    return minimum_recordPath(node->child()[i]);
+	}
+      }
+      node_stack_static.pop_back();
+      return minimum_recordPath(nextSlot_static());
+    }
+    case NodeTypeF: {
+      NodeF* node=static_cast<NodeF*>(n);
+      if (node->child[keyByte]!=NULL) {
+	nc.cursor = keyByte;
+	node_stack_static.push_back(nc);
+	return node->child[keyByte];
+      }
+      else {
+	for (unsigned i=keyByte; i<256; i++) {
+	  if (node->child[i]!=NULL) {
+	    nc.cursor = i;
+	    node_stack_static.push_back(nc);
+	    return node->child[i]; 
+	  }	  
+	}
+	node_stack_static.pop_back();
+	return minimum_recordPath(nextSlot_static());
+      }
+    }
+    case NodeTypeFP: {
+      NodeFP* node=static_cast<NodeFP*>(n);
+      if (node->child()[keyByte]!=NULL) {
+	nc.cursor = keyByte;
+	node_stack_static.push_back(nc);
+	return node->child()[keyByte];
+      }
+      else {
+	for (unsigned i=keyByte; i<256; i++) {
+	  if (node->child()[i]!=NULL) {
+	    nc.cursor = i;
+	    node_stack_static.push_back(nc);
+	    return node->child()[i]; 
+	  }	  
+	}
+	node_stack_static.pop_back();
+	return minimum_recordPath(nextSlot_static());
+      }
+    }
+    }
+    throw; // Unreachable
+  }
+
   inline int CompareToPrefix(Node* node,uint8_t key[],unsigned depth,unsigned maxKeyLength) {
-    //std::cout << "CompareToPrefix\n";
     unsigned pos;
     if (node->prefixLength>maxPrefixLength) {
       for (pos=0;pos<maxPrefixLength;pos++) {
@@ -992,8 +1105,82 @@ public:
     return 0;
   }
 
+  //huanchen-static
+  inline int CompareToPrefix(NodeStatic* n,uint8_t key[],unsigned depth,unsigned maxKeyLength) {
+    if (n->type == NodeTypeD || n->type == NodeTypeF)
+      return 0;
+
+    if (n->type == NodeTypeDP) {
+      NodeDP* node = static_cast<NodeDP*>(n);
+      unsigned pos;
+      if (node->prefixLength>maxPrefixLength) {
+	for (pos=0;pos<maxPrefixLength;pos++) {
+	  if (key[depth+pos]!=node->prefix()[pos]) {
+	    if (key[depth+pos]>node->prefix()[pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+	uint8_t minKey[maxKeyLength];
+	loadKey(getLeafValue(minimum(node)),minKey);
+	for (;pos<node->prefixLength;pos++) {
+	  if (key[depth+pos]!=minKey[depth+pos]) {
+	    if (key[depth+pos]>minKey[depth+pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+      } else {
+	for (pos=0;pos<node->prefixLength;pos++) {
+	  if (key[depth+pos]!=node->prefix()[pos]) {
+	    if (key[depth+pos]>node->prefix()[pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+      }
+    }
+    else if (n->type == NodeTypeFP) {
+      NodeFP* node = static_cast<NodeFP*>(n);
+      unsigned pos;
+      if (node->prefixLength>maxPrefixLength) {
+	for (pos=0;pos<maxPrefixLength;pos++) {
+	  if (key[depth+pos]!=node->prefix()[pos]) {
+	    if (key[depth+pos]>node->prefix()[pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+	uint8_t minKey[maxKeyLength];
+	loadKey(getLeafValue(minimum(node)),minKey);
+	for (;pos<node->prefixLength;pos++) {
+	  if (key[depth+pos]!=minKey[depth+pos]) {
+	    if (key[depth+pos]>minKey[depth+pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+      } else {
+	for (pos=0;pos<node->prefixLength;pos++) {
+	  if (key[depth+pos]!=node->prefix()[pos]) {
+	    if (key[depth+pos]>node->prefix()[pos])
+	      return 1;
+	    else
+	      return -1;
+	  }
+	}
+      }
+    }
+
+    return 0;
+  }
+
   inline Node* lower_bound(Node* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned maxKeyLength) {
-    //std::cout << "lower_bound\n";
     node_stack.clear();
     while (node!=NULL) {
       if (isLeaf(node)) {
@@ -1006,6 +1193,39 @@ public:
       if (ctp > 0) {
 	node_stack.pop_back();
 	return minimum_recordPath(nextSlot());
+      }
+      else if (ctp < 0) {
+	return minimum_recordPath(node);
+      }
+
+      node = findChild_recordPath(node,key[depth]);
+      depth++;
+    }
+
+    return NULL;
+  }
+
+  //huanchen-static
+  inline NodeStatic* lower_bound(NodeStatic* node,uint8_t key[],unsigned keyLength,unsigned depth,unsigned maxKeyLength) {
+    node_stack_static.clear();
+    while (node!=NULL) {
+      if (isLeaf(node)) {
+	return node;
+      }
+
+      int ctp = CompareToPrefix(node,key,depth,maxKeyLength);
+      if (node->type == NodeTypeDP) {
+	NodeDP* node_dp = static_cast<NodeDP*>(node);
+	depth+=node_dp->prefixLength;
+      }
+      else if (node->type == NodeTypeFP) {
+	NodeFP* node_fp = static_cast<NodeFP*>(node);
+	depth+=node_fp->prefixLength;
+      }
+
+      if (ctp > 0) {
+	node_stack_static.pop_back();
+	return minimum_recordPath(nextSlot_static());
       }
       else if (ctp < 0) {
 	return minimum_recordPath(node);
@@ -1061,11 +1281,168 @@ public:
     return NULL;
   }
 
+  //huanchen-static
+  inline NodeStatic* nextSlot_static() {
+    while (!node_stack_static.empty()) {
+      NodeStatic* n = node_stack_static.back().node;
+      uint16_t cursor = node_stack_static.back().cursor;
+      cursor++;
+      node_stack_static.back().cursor = cursor;
+      switch (n->type) {
+      case NodeTypeD: {
+	NodeD* node=static_cast<NodeD*>(n);
+	if (cursor < node->count)
+	  return node->child()[cursor];
+	break;
+      }
+      case NodeTypeDP: {
+	NodeDP* node=static_cast<NodeDP*>(n);
+	if (cursor < node->count)
+	  return node->child()[cursor];
+	break;
+      }
+      case NodeTypeF: {
+	NodeF* node=static_cast<NodeF*>(n);
+	for (unsigned i=cursor; i<256; i++)
+	  if (node->child[i]) {
+	    node_stack_static.back().cursor = i;
+	    return node->child[i]; 
+	  }
+	break;
+      }
+      case NodeTypeFP: {
+	NodeFP* node=static_cast<NodeFP*>(n);
+	for (unsigned i=cursor; i<256; i++)
+	  if (node->child()[i]) {
+	    node_stack_static.back().cursor = i;
+	    return node->child()[i]; 
+	  }
+	break;
+      }
+      }
+      node_stack_static.pop_back();
+    }
+    return NULL;
+  }
+
+  inline Node* currentLeaf() {
+
+    if (node_stack.size() == 0)
+      return NULL;
+
+    Node* n = node_stack.back().node;
+    uint16_t cursor = node_stack.back().cursor;
+
+    switch (n->type) {
+    case NodeType4: {
+      Node4* node=static_cast<Node4*>(n);
+      return node->child[cursor];
+    }
+    case NodeType16: {
+      Node16* node=static_cast<Node16*>(n);
+      return node->child[cursor];
+    }
+    case NodeType48: {
+      Node48* node=static_cast<Node48*>(n);
+      return node->child[node->childIndex[cursor]];
+    }
+    case NodeType256: {
+      Node256* node=static_cast<Node256*>(n);
+      return node->child[cursor]; 
+    }
+    }
+    return NULL;
+  }
+
+  //huanchen-static
+  inline NodeStatic* currentLeaf_static() {
+
+    if (node_stack_static.size() == 0)
+      return NULL;
+
+    NodeStatic* n = node_stack_static.back().node;
+    uint16_t cursor = node_stack_static.back().cursor;
+
+    switch (n->type) {
+    case NodeTypeD: {
+      NodeD* node=static_cast<NodeD*>(n);
+      return node->child()[cursor];
+    }
+    case NodeTypeDP: {
+      NodeDP* node=static_cast<NodeDP*>(n);
+      return node->child()[cursor];
+    }
+    case NodeTypeF: {
+      NodeF* node=static_cast<NodeF*>(n);
+      return node->child[cursor]; 
+    }
+    case NodeTypeFP: {
+      NodeFP* node=static_cast<NodeFP*>(n);
+      return node->child()[cursor]; 
+    }
+    }
+    return NULL;
+  }
+
   inline Node* nextLeaf() {
     return minimum_recordPath(nextSlot());
   }
 
+  //huanchen-static
+  inline NodeStatic* nextLeaf_static() {
+    return minimum_recordPath(nextSlot_static());
+  }
+
   //************************************************************************************************
+
+  //huanchen
+  inline bool update(Node* node,uint8_t key[],uintptr_t value,unsigned keyLength,unsigned depth,unsigned maxKeyLength) {
+    // Find the node with a matching key, optimistic version
+    bool skippedPrefix=false; // Did we optimistically skip some prefix without checking it?
+    Node** nodeRef = &node;
+
+    while (node!=NULL) {
+      if (isLeaf(node)) {
+	if (!skippedPrefix&&depth==keyLength) { // No check required
+	  (*nodeRef) = makeLeaf(value);
+	  return true;
+	}
+
+	if (depth!=keyLength) {
+	  // Check leaf
+	  uint8_t leafKey[maxKeyLength];
+	  //loadKey(getLeafValue(node),leafKey);
+	  loadKey(getLeafValue(node),leafKey, keyLength);
+	  for (unsigned i=(skippedPrefix?0:depth);i<keyLength;i++)
+	    if (leafKey[i]!=key[i])
+	      return false;
+	}
+	(*nodeRef) = makeLeaf(value);
+	return true;
+      }
+
+      if (node->prefixLength) {
+	if (node->prefixLength<maxPrefixLength) {
+	  for (unsigned pos=0;pos<node->prefixLength;pos++)
+	    if (key[depth+pos]!=node->prefix[pos])
+	      return false;
+	} else
+	  skippedPrefix=true;
+	depth+=node->prefixLength;
+      }
+
+      //node=*findChild(node,key[depth]);
+      nodeRef = findChild(node,key[depth]);
+      node = *nodeRef;
+      depth++;
+    }
+    return false;
+  }
+
+  inline void upsert(Node* node,uint8_t key[],uintptr_t value,unsigned keyLength,unsigned depth,unsigned maxKeyLength) {
+    if (!update(node, key, value, keyLength, depth, maxKeyLength))
+      insert(node, &node, key, depth, value, maxKeyLength);
+  }
 
 
   // Forward references
@@ -3100,8 +3477,19 @@ public:
     }
   }
 
+#ifdef MERGE_TIME
+  inline double getnow(void) {
+    struct timeval now_tv;
+    gettimeofday (&now_tv,NULL);
+    return ((double)now_tv.tv_sec) + ((double)now_tv.tv_usec)/1000000.0;
+  }
+#endif
 
   void merge_trees() {
+#ifdef MERGE_TIME
+    double start = getnow();
+    std::cout << (memory + static_memory)/1000000 << " ";
+#endif
 #ifdef DEBUG
     std::cout << "==================================MERGE==================================\n";
     std::cout << "Before: dynamic = " << num_items << "\tstatic = " << num_items_static << "\n";
@@ -3138,7 +3526,13 @@ public:
     print_static_tree(static_root);
     std::cout << "After: dynamic = " << num_items << "\tstatic = " << num_items_static << "\n";
 #endif
+#ifdef MERGE_TIME
+    double end = getnow();
+    //std::cout << "merge time = " << (end - start) << "\tsize = " << static_memory << "\n";
+    std::cout << (end - start) * 1000000 << "\n";
+#endif
   }
+
 
 public:
   hybridART()
@@ -3170,6 +3564,13 @@ public:
       merge_trees();
     insert(root, &root, key, 0, value, maxKeyLength);
   }
+
+  void upsert(uint8_t key[], uintptr_t value, unsigned keyLength, unsigned maxKeyLength) {
+    if (MERGE && num_items > MERGE_THOLD && num_items * MERGE_RATIO > num_items_static)
+      merge_trees();
+    upsert(root, key, value, keyLength, 0, maxKeyLength);
+  }
+
   /*
   uintptr_t lookup(uint8_t key[], unsigned keyLength, unsigned depth, unsigned maxKeyLength) {
     Node* leaf = lookup(root, key, keyLength, depth, maxKeyLength);
@@ -3177,7 +3578,8 @@ public:
       return getLeafValue(leaf);
     return (uintptr_t)0;
   }
-
+  */
+  /*
   uint64_t lookup(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
     Node* leaf = lookup(root, key, keyLength, 0, maxKeyLength);
     if (isLeaf(leaf))
@@ -3206,7 +3608,9 @@ public:
       return getLeafValue(leaf_static);
     return (uint64_t)0;
   }
-  */
+*/
+
+  /*
   uint64_t lower_bound(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
     Node* leaf = lower_bound(root, key, keyLength, 0, maxKeyLength);
     if (isLeaf(leaf))
@@ -3219,6 +3623,113 @@ public:
     if (isLeaf(leaf))
       return getLeafValue(leaf);
     return (uint64_t)0;
+  }
+  */
+
+  uint64_t lower_bound(uint8_t key[], unsigned keyLength, unsigned maxKeyLength) {
+    //std::cout << "lower_bound\n";
+    Node* leaf = lower_bound(root, key, keyLength, 0, maxKeyLength);
+    NodeStatic* leaf_static = lower_bound(static_root, key, keyLength, 0, maxKeyLength);
+
+    if (!leaf && !leaf_static)
+      return (uint64_t)0;
+
+    if (!leaf) {
+      if (isLeaf(leaf_static))
+	return getLeafValue(leaf_static);
+      return (uint64_t)0;
+    }
+
+    if (!leaf_static) {
+      if (isLeaf(leaf))
+	return getLeafValue(leaf);
+      return (uint64_t)0;
+    }
+
+    uintptr_t leaf_ptr;
+    uintptr_t leaf_static_ptr;
+    if (isLeaf(leaf))
+      leaf_ptr = getLeafValue(leaf);
+    else
+      return getLeafValue(leaf_static);
+    if (isLeaf(leaf_static))
+      leaf_static_ptr = getLeafValue(leaf_static);
+    else
+      return getLeafValue(leaf);
+
+    uint8_t leaf_key[maxKeyLength];
+    loadKey(leaf_ptr, leaf_key, keyLength);
+    uint8_t leaf_static_key[maxKeyLength];
+    loadKey(leaf_static_ptr, leaf_static_key, keyLength);
+
+    int cmp = strncmp((const char*)leaf_key, (const char*)leaf_static_key, keyLength);
+
+    if (cmp < 0) {
+      nextLeaf();
+      return (uint64_t)leaf_ptr;
+    }
+    else if (cmp > 0) {
+      nextLeaf_static();
+      return (uint64_t)leaf_static_ptr;
+    }
+    else {
+      nextLeaf();
+      nextLeaf_static();
+      return (uint64_t)leaf_ptr;
+    }
+  }
+
+  uint64_t next() {
+    //std::cout << "next\n";
+    Node* leaf = currentLeaf();
+    NodeStatic* leaf_static = currentLeaf_static();
+
+    if (!leaf && !leaf_static)
+      return (uint64_t)0;
+
+    if (!leaf) {
+      if (isLeaf(leaf_static))
+	return getLeafValue(leaf_static);
+      return (uint64_t)0;
+    }
+
+    if (!leaf_static) {
+      if (isLeaf(leaf))
+	return getLeafValue(leaf);
+      return (uint64_t)0;
+    }
+
+    uintptr_t leaf_ptr;
+    uintptr_t leaf_static_ptr;
+    if (isLeaf(leaf))
+      leaf_ptr = getLeafValue(leaf);
+    else
+      return getLeafValue(leaf_static);
+    if (isLeaf(leaf_static))
+      leaf_static_ptr = getLeafValue(leaf_static);
+    else
+      return getLeafValue(leaf);
+
+    uint8_t leaf_key[key_length];
+    loadKey(leaf_ptr, leaf_key, key_length);
+    uint8_t leaf_static_key[key_length];
+    loadKey(leaf_static_ptr, leaf_static_key, key_length);
+
+    int cmp = strncmp((const char*)leaf_key, (const char*)leaf_static_key, key_length);
+
+    if (cmp < 0) {
+      nextLeaf();
+      return (uint64_t)leaf_ptr;
+    }
+    else if (cmp > 0) {
+      nextLeaf_static();
+      return (uint64_t)leaf_static_ptr;
+    }
+    else {
+      nextLeaf();
+      nextLeaf_static();
+      return (uint64_t)leaf_ptr;
+    }
   }
 
   void erase(uint8_t key[], unsigned keyLength, unsigned depth, unsigned maxKeyLength) {
@@ -3276,6 +3787,7 @@ private:
   uint64_t num_items_static;
 
   std::vector<NodeCursor> node_stack;
+  std::vector<NodeStaticCursor> node_stack_static;
 
   unsigned key_length;
 

@@ -148,7 +148,7 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
   std::cout << "insert " << tput << "\n";
   std::cout << "memory " << (idx->getMemory() / 1000000) << "\n";
 
-  idx->merge();
+  //idx->merge();
   std::cout << "static memory " << (idx->getMemory() / 1000000) << "\n\n";
   //return;
 
@@ -189,7 +189,11 @@ inline void exec(int wl, int index_type, std::vector<keytype> &init_keys, std::v
       sum += idx->find(keys[txn_num]);
     }
     else if (ops[txn_num] == 2) { //UPDATE
+      //std::cout << "\n=============================================\n";
+      //std::cout << "value before = " << idx->find(keys[txn_num]) << "\n";
+      //std::cout << "update value = " << values[txn_num] << "\n";
       idx->upsert(keys[txn_num], values[txn_num]);
+      //std::cout << "value after = " << idx->find(keys[txn_num]) << "\n"; 
     }
     else if (ops[txn_num] == 3) { //SCAN
       idx->scan(keys[txn_num], ranges[txn_num]);
