@@ -8,10 +8,6 @@ MEMMGR = -ltcmalloc_minimal -lpapi
 SNAPPY = /usr/lib/libsnappy.so.1.3.0
 
 all: workload workload_string
-#all: workload 
-#all: workload_string
-#all: arttest
-
 
 workload.o: workload.cpp microbench.h
 	$(CXX) $(CFLAGS) -c -o workload.o workload.cpp
@@ -25,11 +21,8 @@ workload_string.o: workload_string.cpp microbench.h
 workload_string: workload_string.o
 	$(CXX) $(CFLAGS) -o workload_string workload_string.o $(MEMMGR) -lpthread -lm
 
-arttest.o: arttest.cpp
-	$(CXX) $(CFLAGS) -c -o arttest.o arttest.cpp
-
-arttest: arttest.o
-	$(CXX) $(CFLAGS) -o arttest arttest.o $(MEMMGR) -lpthread -lm
+generate_workload:
+	python gen_workload.py workload_config.inp
 
 clean:
-	$(RM) workload workload_string arttest *.o *~ *.d
+	$(RM) workload workload_string *.o *~ *.d
