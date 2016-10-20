@@ -57,6 +57,9 @@ out_txn = output_dir + 'txn_' + key_type + '_' + workload
 cmd_ycsb_load = ycsb_dir + 'bin/ycsb load basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_load
 cmd_ycsb_txn = ycsb_dir + 'bin/ycsb run basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_txn
 
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
 os.system(cmd_ycsb_load)
 os.system(cmd_ycsb_txn)
 
