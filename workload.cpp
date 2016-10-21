@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "microbench.h"
 
 typedef uint64_t keytype;
@@ -55,6 +56,16 @@ inline void load(int wl, int kt, int index_type, std::vector<keytype> &init_keys
     txn_file = "workloads/txnsa_zipf_int_100M.dat";
   }
 
+  if(!file_exists(init_file)) {
+    std::cerr << "Workload init file " << init_file << " does not exist." << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
+  if(!file_exists(txn_file)) {
+    std::cerr << "Workload txn file " << txn_file << " does not exist." << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
   std::ifstream infile_load(init_file);
   std::ifstream infile_txn(txn_file);
 
@@ -85,6 +96,11 @@ inline void load(int wl, int kt, int index_type, std::vector<keytype> &init_keys
   free(base_ptr);
 
   keytype *init_keys_data = init_keys.data();
+
+  if(count == 0) {
+    std::cerr << "The init file (" << init_file << ") is empty " << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
   if (value_type == 0) {
     while (count < INIT_LIMIT) {
