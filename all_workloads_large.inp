@@ -1,0 +1,37 @@
+workload, keytype
+####################################
+# 50% read / 50 % update           #
+####################################
+a_zipf_int_100M, email
+a_zipf_int_100M, monoint
+a_zipf_int_100M, randint
+####################################
+# 95% read / 5 %  update           #
+####################################
+b_zipf_int_100M, email
+b_zipf_int_100M, monoint
+b_zipf_int_100M, randint
+####################################
+# readonly                         #
+####################################
+c_zipf_int_100M, email
+c_zipf_int_100M, monoint
+c_zipf_int_100M, randint
+####################################
+# 95% read / 5 % insert            #
+####################################
+d_zipf_int_100M, email
+d_zipf_int_100M, monoint
+d_zipf_int_100M, randint
+####################################
+# 95% scan / 5 % insert            #
+####################################
+e_zipf_int_100M, email
+e_zipf_int_100M, monoint
+e_zipf_int_100M, randint
+####################################
+# 50% read / 50 % readmodifywrite  #
+####################################
+f_zipf_int_100M, email
+f_zipf_int_100M, monoint
+f_zipf_int_100M, randint
