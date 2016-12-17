@@ -1,6 +1,7 @@
 import sys
 import csv
 import os
+import json
 
 class bcolors:
     HEADER = '\033[95m'
@@ -139,7 +140,7 @@ def generateWorkload(workload, key_type) :
             cols = line.split()
             email = reverseHostName(emails[count * gap])
             keymap[int(cols[1])] = email
-            f_load_out.write (cols[0] + ' \"' + email + '\"\n')
+            f_load_out.write (cols[0] + ' ' + json.dumps(email) + '\n')
             count += 1
 
         count = 0
@@ -148,14 +149,14 @@ def generateWorkload(workload, key_type) :
         for line in f_txn :
             cols = line.split()
             if cols[0] == 'SCAN' :
-                f_txn_out.write (cols[0] + ' \"' + keymap[int(cols[1])] + '\" ' + cols[2] + '\n')
+                f_txn_out.write (cols[0] + ' ' + json.dumps(keymap[int(cols[1])]) + ' ' + cols[2] + '\n')
             elif cols[0] == 'INSERT' :
                 email = reverseHostName(emails[count * gap + 1])
                 keymap[int(cols[1])] = email
-                f_txn_out.write (cols[0] + ' \"' + email + '\"\n')
+                f_txn_out.write (cols[0] + ' ' + json.dumps(email) + '\n')
                 count += 1
             else :
-                f_txn_out.write (cols[0] + ' \"' + keymap[int(cols[1])] + '\"\n')
+                f_txn_out.write (cols[0] + ' ' + json.dumps(keymap[int(cols[1])]) + '\n')
 
     f_load.close()
     f_load_out.close()
