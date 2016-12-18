@@ -37,7 +37,7 @@ def generateWorkload(workload, key_type) :
     workload_name = workload + '_' + key_type;
 
     email_list = 'list.txt'
-    email_list_size = 27549660
+    email_list_size = 144770741 
 
     out_ycsb_load = output_dir + 'ycsb_load_' + workload_name;
     out_ycsb_txn = output_dir + 'ycsb_txn_' + workload_name
