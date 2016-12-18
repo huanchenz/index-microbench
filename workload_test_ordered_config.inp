@@ -1,0 +1,4 @@
+workload, keytype
+workload_test_ordered, randint
+workload_test_ordered, monoint
+workload_test_ordered, email

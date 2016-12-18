@@ -2,6 +2,8 @@ import sys
 import csv
 import os
 import json
+import random
+from datetime import datetime
 
 class bcolors:
     HEADER = '\033[95m'
@@ -57,11 +59,13 @@ def generateWorkload(workload, key_type) :
 
     #####################################################################################
 
+    originalKeys = []
     f_load = open (out_ycsb_load, 'r')
     f_load_out = open (out_load_ycsbkey, 'w')
     for line in f_load :
         cols = line.split()
         if len(cols) > 0 and cols[0] == 'INSERT':
+            originalKeys.append(cols[2][4:])
             f_load_out.write (cols[0] + " " + cols[2][4:] + "\n")
     f_load.close()
     f_load_out.close()
@@ -72,6 +76,8 @@ def generateWorkload(workload, key_type) :
         cols = line.split()
         if (cols[0] == 'SCAN') or (cols[0] == 'INSERT') or (cols[0] == 'READ') or (cols[0] == 'UPDATE'):
             startkey = cols[2][4:]
+            if cols[0] == 'INSERT':
+                originalKeys.append(startkey)
             if cols[0] == 'SCAN' :
                 numkeys = cols[3]
                 f_txn_out.write (cols[0] + ' ' + startkey + ' ' + numkeys + '\n')
@@ -80,6 +86,9 @@ def generateWorkload(workload, key_type) :
     f_txn.close()
     f_txn_out.close()
 
+    originalKeys.sort()
+    numberUniqueKeys = len(originalKeys)
+
     cmd = 'rm -f ' + out_ycsb_load
     os.system(cmd)
     cmd = 'rm -f ' + out_ycsb_txn
@@ -87,78 +96,49 @@ def generateWorkload(workload, key_type) :
 
     #####################################################################################
 
-    if key_type == 'randint' :
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
-        for line in f_load :
-            f_load_out.write (line)
+    valueDictionary = {}
+    random.seed(datetime.now())  
 
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            f_txn_out.write (line)
-
-    elif key_type == 'monoint' :
-        keymap = {}
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
-        count = 0
-        for line in f_load :
-            cols = line.split()
-            keymap[int(cols[1])] = count
-            f_load_out.write (cols[0] + ' ' + str(count) + '\n')
-            count += 1
-
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            cols = line.split()
-            if cols[0] == 'SCAN' :
-                f_txn_out.write (cols[0] + ' ' + str(keymap[int(cols[1])]) + ' ' + cols[2] + '\n')
-            elif cols[0] == 'INSERT' :
-                keymap[int(cols[1])] = count
-                f_txn_out.write (cols[0] + ' ' + str(count) + '\n')
-                count += 1
-            else :
-                f_txn_out.write (cols[0] + ' ' + str(keymap[int(cols[1])]) + '\n')
-
-    elif key_type == 'email' :
-        keymap = {}
+    if key_type == 'randint':
+        randomNumbers = [];
+        for key in originalKeys:
+            randomNumbers.append(random.getrandbits(63))
+        randomNumbers.sort()
+        currentId = 0;
+        for key in originalKeys: 
+            valueDictionary[str(key)] = str(randomNumbers[currentId])
+            currentId = currentId + 1
+    elif key_type == 'monoint':
+        currentId = 0
+        for key in originalKeys:
+            valueDictionary[str(key)] = str(currentId)
+            currentId = currentId + 1
+    elif key_type == 'email':
         f_email = open (email_list, 'r')
         emails = f_email.readlines()
+        emails.sort()
+        gap = len(emails) / numberUniqueKeys;
+        currentId = 0;
+        for key in originalKeys:
+            valueDictionary[str(key)] = json.dumps(reverseHostName(emails[currentId]))
+            currentId = currentId + gap;
+    
+    keymap = {}
+    f_load = open (out_load_ycsbkey, 'r')
+    f_load_out = open (out_load, 'w')
+    for line in f_load :
+        cols = line.split()
+        f_load_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + '\n')
 
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
+    f_txn = open (out_txn_ycsbkey, 'r')
+    f_txn_out = open (out_txn, 'w')
+    for line in f_txn :
+        cols = line.split()
+        if cols[0] == 'SCAN' :
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + ' ' + cols[2] + '\n')
+        else :
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + '\n')
 
-        sample_size = len(f_load.readlines())
-        gap = email_list_size / sample_size
-
-        f_load.close()
-        f_load = open (out_load_ycsbkey, 'r')
-        count = 0
-        for line in f_load :
-            cols = line.split()
-            email = reverseHostName(emails[count * gap])
-            keymap[int(cols[1])] = email
-            f_load_out.write (cols[0] + ' ' + json.dumps(email) + '\n')
-            count += 1
-
-        count = 0
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            cols = line.split()
-            if cols[0] == 'SCAN' :
-                f_txn_out.write (cols[0] + ' ' + json.dumps(keymap[int(cols[1])]) + ' ' + cols[2] + '\n')
-            elif cols[0] == 'INSERT' :
-                email = reverseHostName(emails[count * gap + 1])
-                keymap[int(cols[1])] = email
-                f_txn_out.write (cols[0] + ' ' + json.dumps(email) + '\n')
-                count += 1
-            else :
-                f_txn_out.write (cols[0] + ' ' + json.dumps(keymap[int(cols[1])]) + '\n')
-
-    f_load.close()
     f_load_out.close()
     f_txn.close()
     f_txn_out.close()
