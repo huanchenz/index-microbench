@@ -1,4 +1,4 @@
-workload, keytype
+workload, keytype, filename
 workload_test_ordered, randint
 workload_test_ordered, monoint
-workload_test_ordered, email
+workload_test_ordered, email, list.txt

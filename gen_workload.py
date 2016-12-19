@@ -31,22 +31,21 @@ ycsb_dir = 'YCSB/'
 workload_dir = 'workload_spec/'
 output_dir='workloads/'
 
-def generateWorkload(workload, key_type) :
+def generateWorkload(workload, key_type, rawKeysFilename, workloadIdentifier) :
 
     print bcolors.OKGREEN + 'workload = ' + workload
     print 'key type = ' + key_type + bcolors.ENDC
 
     workload_name = workload + '_' + key_type;
-
-    email_list = 'list.txt'
-    email_list_size = 144770741 
+    workloadIdentifier = '_' + workloadIdentifier if workloadIdentifier else ''
+    output_workload_name = workload + '_' + key_type + workloadIdentifier
 
     out_ycsb_load = output_dir + 'ycsb_load_' + workload_name;
     out_ycsb_txn = output_dir + 'ycsb_txn_' + workload_name
     out_load_ycsbkey = output_dir + 'load_' + 'ycsbkey' + '_' + workload_name
     out_txn_ycsbkey = output_dir + 'txn_' + 'ycsbkey' + '_' + workload_name
-    out_load = output_dir + workload_name + '_load.dat'
-    out_txn = output_dir + workload_name + '_txn.dat'
+    out_load = output_dir + output_workload_name + '_load.dat'
+    out_txn = output_dir + output_workload_name + '_txn.dat'
 
     cmd_ycsb_load = ycsb_dir + 'bin/ycsb load basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_load
     cmd_ycsb_txn = ycsb_dir + 'bin/ycsb run basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_txn
@@ -114,7 +113,7 @@ def generateWorkload(workload, key_type) :
             valueDictionary[key] = str(currentId)
             currentId = currentId + 1
     elif key_type == 'email':
-        f_email = open (email_list, 'r')
+        f_email = open (rawKeysFilename, 'r')
         emails = f_email.readlines()
         for i, email in enumerate(emails):
             emails[i] = json.dumps(reverseHostName(email))        
@@ -124,7 +123,16 @@ def generateWorkload(workload, key_type) :
         for key in originalKeys:
             valueDictionary[key] = emails[currentId]
             currentId = currentId + gap;
-    
+    elif key_type == 'mappedint':
+        f_inputKeys = open (rawKeysFilename, 'r')
+        inputKeys = f_inputKeys.readlines()
+        selectedKeys = []
+        for i, key in enumerate(originalKeys):
+            selectedKeys.append(long(inputKeys[i]))
+        selectedKeys.sort()
+        for i, key in enumerate(originalKeys):
+            valueDictionary[key] = str(selectedKeys[i]);    
+
     keymap = {}
     f_load = open (out_load_ycsbkey, 'r')
     f_load_out = open (out_load, 'w')
@@ -172,8 +180,8 @@ def checkWorkloadRow(row, line) :
     if not os.path.isfile(workload_file) :
         print bcolors.FAIL + 'Workload definition ' + workload_file + ' (line ' + line + ') does not exist.' + bcolors.ENDC
         sys.exit(1)
-    if key_type not in [ 'randint', 'monoint', 'email' ]:
-        print bcolors.FAIL + 'Keytype ' + key_type + ' on line ' + line + ' is unknown. Only randint, monoint or email are supported. ' + bcolors.ENDC
+    if key_type not in [ 'randint', 'monoint', 'email', 'mappedint' ]:
+        print bcolors.FAIL + 'Keytype ' + key_type + ' on line ' + line + ' is unknown. Only randint, monoint, mappedint or email are supported. ' + bcolors.ENDC
         sys.exit(1)
 
 def main(argv):
@@ -186,7 +194,7 @@ def main(argv):
         linenumber = 1;
         for row in reader:
             checkWorkloadRow(row, ++linenumber)
-            generateWorkload(row['workload'], row['keytype'])
+            generateWorkload(row['workload'], row['keytype'], row.get('filename', ''), row.get('workloadidentifier', ''))
 
 if __name__ == '__main__':
     main(sys.argv)
