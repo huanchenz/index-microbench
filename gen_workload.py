@@ -65,7 +65,7 @@ def generateWorkload(workload, key_type) :
     for line in f_load :
         cols = line.split()
         if len(cols) > 0 and cols[0] == 'INSERT':
-            originalKeys.append(cols[2][4:])
+            originalKeys.append(long(cols[2][4:]))
             f_load_out.write (cols[0] + " " + cols[2][4:] + "\n")
     f_load.close()
     f_load_out.close()
@@ -77,7 +77,7 @@ def generateWorkload(workload, key_type) :
         if (cols[0] == 'SCAN') or (cols[0] == 'INSERT') or (cols[0] == 'READ') or (cols[0] == 'UPDATE'):
             startkey = cols[2][4:]
             if cols[0] == 'INSERT':
-                originalKeys.append(startkey)
+                originalKeys.append(long(startkey))
             if cols[0] == 'SCAN' :
                 numkeys = cols[3]
                 f_txn_out.write (cols[0] + ' ' + startkey + ' ' + numkeys + '\n')
@@ -106,21 +106,23 @@ def generateWorkload(workload, key_type) :
         randomNumbers.sort()
         currentId = 0;
         for key in originalKeys: 
-            valueDictionary[str(key)] = str(randomNumbers[currentId])
+            valueDictionary[key] = str(randomNumbers[currentId])
             currentId = currentId + 1
     elif key_type == 'monoint':
         currentId = 0
         for key in originalKeys:
-            valueDictionary[str(key)] = str(currentId)
+            valueDictionary[key] = str(currentId)
             currentId = currentId + 1
     elif key_type == 'email':
         f_email = open (email_list, 'r')
         emails = f_email.readlines()
+        for i, email in enumerate(emails):
+            emails[i] = json.dumps(reverseHostName(email))        
         emails.sort()
         gap = len(emails) / numberUniqueKeys;
         currentId = 0;
         for key in originalKeys:
-            valueDictionary[str(key)] = json.dumps(reverseHostName(emails[currentId]))
+            valueDictionary[key] = emails[currentId]
             currentId = currentId + gap;
     
     keymap = {}
@@ -128,16 +130,16 @@ def generateWorkload(workload, key_type) :
     f_load_out = open (out_load, 'w')
     for line in f_load :
         cols = line.split()
-        f_load_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + '\n')
+        f_load_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + '\n')
 
     f_txn = open (out_txn_ycsbkey, 'r')
     f_txn_out = open (out_txn, 'w')
     for line in f_txn :
         cols = line.split()
         if cols[0] == 'SCAN' :
-            f_txn_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + ' ' + cols[2] + '\n')
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + ' ' + cols[2] + '\n')
         else :
-            f_txn_out.write (cols[0] + ' ' + valueDictionary[cols[1]] + '\n')
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + '\n')
 
     f_load_out.close()
     f_txn.close()
