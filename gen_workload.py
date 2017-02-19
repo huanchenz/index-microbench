@@ -1,6 +1,9 @@
 import sys
 import csv
 import os
+import json
+import random
+from datetime import datetime
 
 class bcolors:
     HEADER = '\033[95m'
@@ -28,22 +31,21 @@ ycsb_dir = 'YCSB/'
 workload_dir = 'workload_spec/'
 output_dir='workloads/'
 
-def generateWorkload(workload, key_type) :
+def generateWorkload(workload, key_type, rawKeysFilename, workloadIdentifier) :
 
     print bcolors.OKGREEN + 'workload = ' + workload
     print 'key type = ' + key_type + bcolors.ENDC
 
     workload_name = workload + '_' + key_type;
-
-    email_list = 'list.txt'
-    email_list_size = 27549660
+    workloadIdentifier = '_' + workloadIdentifier if workloadIdentifier else ''
+    output_workload_name = workload + '_' + key_type + workloadIdentifier
 
     out_ycsb_load = output_dir + 'ycsb_load_' + workload_name;
     out_ycsb_txn = output_dir + 'ycsb_txn_' + workload_name
     out_load_ycsbkey = output_dir + 'load_' + 'ycsbkey' + '_' + workload_name
     out_txn_ycsbkey = output_dir + 'txn_' + 'ycsbkey' + '_' + workload_name
-    out_load = output_dir + workload_name + '_load.dat'
-    out_txn = output_dir + workload_name + '_txn.dat'
+    out_load = output_dir + output_workload_name + '_load.dat'
+    out_txn = output_dir + output_workload_name + '_txn.dat'
 
     cmd_ycsb_load = ycsb_dir + 'bin/ycsb load basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_load
     cmd_ycsb_txn = ycsb_dir + 'bin/ycsb run basic -P ' + workload_dir + workload + ' -s > ' + out_ycsb_txn
@@ -56,11 +58,13 @@ def generateWorkload(workload, key_type) :
 
     #####################################################################################
 
+    originalKeys = []
     f_load = open (out_ycsb_load, 'r')
     f_load_out = open (out_load_ycsbkey, 'w')
     for line in f_load :
         cols = line.split()
         if len(cols) > 0 and cols[0] == 'INSERT':
+            originalKeys.append(long(cols[2][4:]))
             f_load_out.write (cols[0] + " " + cols[2][4:] + "\n")
     f_load.close()
     f_load_out.close()
@@ -71,6 +75,8 @@ def generateWorkload(workload, key_type) :
         cols = line.split()
         if (cols[0] == 'SCAN') or (cols[0] == 'INSERT') or (cols[0] == 'READ') or (cols[0] == 'UPDATE'):
             startkey = cols[2][4:]
+            if cols[0] == 'INSERT':
+                originalKeys.append(long(startkey))
             if cols[0] == 'SCAN' :
                 numkeys = cols[3]
                 f_txn_out.write (cols[0] + ' ' + startkey + ' ' + numkeys + '\n')
@@ -79,6 +85,9 @@ def generateWorkload(workload, key_type) :
     f_txn.close()
     f_txn_out.close()
 
+    originalKeys.sort()
+    numberUniqueKeys = len(originalKeys)
+
     cmd = 'rm -f ' + out_ycsb_load
     os.system(cmd)
     cmd = 'rm -f ' + out_ycsb_txn
@@ -86,78 +95,60 @@ def generateWorkload(workload, key_type) :
 
     #####################################################################################
 
-    if key_type == 'randint' :
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
-        for line in f_load :
-            f_load_out.write (line)
+    valueDictionary = {}
+    random.seed(datetime.now())  
 
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            f_txn_out.write (line)
-
-    elif key_type == 'monoint' :
-        keymap = {}
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
-        count = 0
-        for line in f_load :
-            cols = line.split()
-            keymap[int(cols[1])] = count
-            f_load_out.write (cols[0] + ' ' + str(count) + '\n')
-            count += 1
-
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            cols = line.split()
-            if cols[0] == 'SCAN' :
-                f_txn_out.write (cols[0] + ' ' + str(keymap[int(cols[1])]) + ' ' + cols[2] + '\n')
-            elif cols[0] == 'INSERT' :
-                keymap[int(cols[1])] = count
-                f_txn_out.write (cols[0] + ' ' + str(count) + '\n')
-                count += 1
-            else :
-                f_txn_out.write (cols[0] + ' ' + str(keymap[int(cols[1])]) + '\n')
-
-    elif key_type == 'email' :
-        keymap = {}
-        f_email = open (email_list, 'r')
+    if key_type == 'randint':
+        randomNumbers = [];
+        for key in originalKeys:
+            randomNumbers.append(random.getrandbits(63))
+        randomNumbers.sort()
+        currentId = 0;
+        for key in originalKeys: 
+            valueDictionary[key] = str(randomNumbers[currentId])
+            currentId = currentId + 1
+    elif key_type == 'monoint':
+        currentId = 0
+        for key in originalKeys:
+            valueDictionary[key] = str(currentId)
+            currentId = currentId + 1
+    elif key_type == 'email':
+        f_email = open (rawKeysFilename, 'r')
         emails = f_email.readlines()
+        for i, email in enumerate(emails):
+            emails[i] = json.dumps(reverseHostName(email))        
+        emails.sort()
+        gap = len(emails) / numberUniqueKeys;
+        currentId = 0;
+        for key in originalKeys:
+            valueDictionary[key] = emails[currentId]
+            currentId = currentId + gap;
+    elif key_type == 'mappedint':
+        f_inputKeys = open (rawKeysFilename, 'r')
+        inputKeys = f_inputKeys.readlines()
+        selectedKeys = []
+        for i, key in enumerate(originalKeys):
+            selectedKeys.append(long(inputKeys[i]))
+        selectedKeys.sort()
+        for i, key in enumerate(originalKeys):
+            valueDictionary[key] = str(selectedKeys[i]);    
 
-        f_load = open (out_load_ycsbkey, 'r')
-        f_load_out = open (out_load, 'w')
+    keymap = {}
+    f_load = open (out_load_ycsbkey, 'r')
+    f_load_out = open (out_load, 'w')
+    for line in f_load :
+        cols = line.split()
+        f_load_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + '\n')
 
-        sample_size = len(f_load.readlines())
-        gap = email_list_size / sample_size
+    f_txn = open (out_txn_ycsbkey, 'r')
+    f_txn_out = open (out_txn, 'w')
+    for line in f_txn :
+        cols = line.split()
+        if cols[0] == 'SCAN' :
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + ' ' + cols[2] + '\n')
+        else :
+            f_txn_out.write (cols[0] + ' ' + valueDictionary[long(cols[1])] + '\n')
 
-        f_load.close()
-        f_load = open (out_load_ycsbkey, 'r')
-        count = 0
-        for line in f_load :
-            cols = line.split()
-            email = reverseHostName(emails[count * gap])
-            keymap[int(cols[1])] = email
-            f_load_out.write (cols[0] + ' ' + email + '\n')
-            count += 1
-
-        count = 0
-        f_txn = open (out_txn_ycsbkey, 'r')
-        f_txn_out = open (out_txn, 'w')
-        for line in f_txn :
-            cols = line.split()
-            if cols[0] == 'SCAN' :
-                f_txn_out.write (cols[0] + ' ' + keymap[int(cols[1])] + ' ' + cols[2] + '\n')
-            elif cols[0] == 'INSERT' :
-                email = reverseHostName(emails[count * gap + 1])
-                keymap[int(cols[1])] = email
-                f_txn_out.write (cols[0] + ' ' + email + '\n')
-                count += 1
-            else :
-                f_txn_out.write (cols[0] + ' ' + keymap[int(cols[1])] + '\n')
-
-    f_load.close()
     f_load_out.close()
     f_txn.close()
     f_txn_out.close()
@@ -189,8 +180,8 @@ def checkWorkloadRow(row, line) :
     if not os.path.isfile(workload_file) :
         print bcolors.FAIL + 'Workload definition ' + workload_file + ' (line ' + line + ') does not exist.' + bcolors.ENDC
         sys.exit(1)
-    if key_type not in [ 'randint', 'monoint', 'email' ]:
-        print bcolors.FAIL + 'Keytype ' + key_type + ' on line ' + line + ' is unknown. Only randint, monoint or email are supported. ' + bcolors.ENDC
+    if key_type not in [ 'randint', 'monoint', 'email', 'mappedint' ]:
+        print bcolors.FAIL + 'Keytype ' + key_type + ' on line ' + line + ' is unknown. Only randint, monoint, mappedint or email are supported. ' + bcolors.ENDC
         sys.exit(1)
 
 def main(argv):
@@ -203,7 +194,7 @@ def main(argv):
         linenumber = 1;
         for row in reader:
             checkWorkloadRow(row, ++linenumber)
-            generateWorkload(row['workload'], row['keytype'])
+            generateWorkload(row['workload'], row['keytype'], row.get('filename', ''), row.get('workloadidentifier', ''))
 
 if __name__ == '__main__':
     main(sys.argv)

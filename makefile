@@ -24,8 +24,11 @@ workload_string: workload_string.o
 generate_workload:
 	python gen_workload.py workload_config.inp
 
-generate_all_workloads_large:
-	python gen_workload.py all_workloads_large.inp
+generate_all_workloads_large_10mio:
+	python gen_workload.py all_workloads_large_10mio.inp
+
+generate_all_workloads_large_50mio:
+	python gen_workload.py all_workloads_large_50mio.inp
 
 generate_all_workloads_small:
 	python gen_workload.py all_workloads_small.inp
