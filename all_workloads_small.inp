@@ -1,0 +1,37 @@
+workload, keytype, filename
+####################################
+# 50% read / 50 % update           #
+####################################
+workloada, email, ./list.txt
+workloada, monoint
+workloada, randint
+####################################
+# 95% read / 5 %  update           #
+####################################
+workloadb, email, ./list.txt
+workloadb, monoint
+workloadb, randint
+####################################
+# readonly                         #
+####################################
+workloadc, email, ./list.txt
+workloadc, monoint
+workloadc, randint
+####################################
+# 95% read / 5 % insert            #
+####################################
+workloadd, email, ./list.txt
+workloadd, monoint
+workloadd, randint
+####################################
+# 95% scan / 5 % insert            #
+####################################
+workloade, email, ./list.txt
+workloade, monoint
+workloade, randint
+####################################
+# 50% read / 50 % readmodifywrite  #
+####################################
+workloadf, email, ./list.txt
+workloadf, monoint
+workloadf, randint

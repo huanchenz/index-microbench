@@ -1,0 +1,8 @@
+YCSB
+.idea
+*build
+list.txt
+workloads
+*.o
+workload
+workload_string

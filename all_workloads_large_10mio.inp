@@ -1,0 +1,55 @@
+workload, keytype, filename
+####################################
+# 50% read / 50 % update           #
+####################################
+a_zipf_ordered_10M, email, list.txt
+a_zipf_ordered_10M, monoint
+a_zipf_ordered_10M, randint
+a_zipf_hashed_10M, email, list.txt
+a_zipf_hashed_10M, monoint
+a_zipf_hashed_10M, randint
+####################################
+# 95% read / 5 %  update           #
+####################################
+b_zipf_ordered_10M, email, list.txt
+b_zipf_ordered_10M, monoint
+b_zipf_ordered_10M, randint
+b_zipf_hashed_10M, email, list.txt
+b_zipf_hashed_10M, monoint
+b_zipf_hashed_10M, randint
+####################################
+# readonly                         #
+####################################
+c_zipf_ordered_10M, email, list.txt
+c_zipf_ordered_10M, monoint
+c_zipf_ordered_10M, randint
+c_zipf_hashed_10M, email, list.txt
+c_zipf_hashed_10M, monoint
+c_zipf_hashed_10M, randint
+####################################
+# 95% read / 5 % insert            #
+####################################
+d_zipf_ordered_10M, email, list.txt
+d_zipf_ordered_10M, monoint
+d_zipf_ordered_10M, randint
+d_zipf_hashed_10M, email, list.txt
+d_zipf_hashed_10M, monoint
+d_zipf_hashed_10M, randint
+####################################
+# 95% scan / 5 % insert            #
+####################################
+e_zipf_ordered_10M, email, list.txt
+e_zipf_ordered_10M, monoint
+e_zipf_ordered_10M, randint
+e_zipf_hashed_10M, email, list.txt
+e_zipf_hashed_10M, monoint
+e_zipf_hashed_10M, randint
+####################################
+# 50% read / 50 % readmodifywrite  #
+####################################
+f_zipf_ordered_10M, email, list.txt
+f_zipf_ordered_10M, monoint
+f_zipf_ordered_10M, randint
+f_zipf_hashed_10M, email, list.txt
+f_zipf_hashed_10M, monoint
+f_zipf_hashed_10M, randint

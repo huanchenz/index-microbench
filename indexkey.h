@@ -1,4 +1,6 @@
-#include <string.h>
+#include <cstring>
+#include <iostream>
+#include <string>
 
 template <std::size_t keySize>
 class GenericKey {
@@ -9,6 +11,13 @@ public:
   }
 
   char data[keySize];
+
+  friend std::istream &operator>>( std::istream  &input, GenericKey & key ) {
+    std::string temp_string;
+    input >> temp_string;
+    key.setFromString(temp_string);
+    return input;
+  }
 };
 
 template <std::size_t keySize>
